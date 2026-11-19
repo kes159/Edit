@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import UniformTypeIdentifiers
 
 @main
@@ -17,6 +18,7 @@ struct RootView: View {
     @State private var showWelcome = true
     @State private var confirmingNewProject = false
     @State private var selectedSection: EditorSection? = .source
+    @State private var selectedTab: EditorSection = .source
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -73,15 +75,24 @@ struct RootView: View {
     }
 
     private var compactLayout: some View {
-        TabView {
-            NavigationStack { SourceEditor() }
+        TabView(selection: $selectedTab) {
+            NavigationStack {
+                SourceEditor(viewCodeAction: { selectedTab = .json }, addAppAction: {
+                    store.source.apps.append(AltApp())
+                    selectedTab = .apps
+                })
+            }
                 .tabItem { Label("소스", systemImage: "square.stack.3d.up") }
+                .tag(EditorSection.source)
             NavigationStack { AppsScreen() }
                 .tabItem { Label("앱", systemImage: "apps.iphone") }
+                .tag(EditorSection.apps)
             NavigationStack { NewsScreen() }
                 .tabItem { Label("뉴스", systemImage: "newspaper") }
+                .tag(EditorSection.news)
             NavigationStack { jsonScreen }
                 .tabItem { Label("JSON", systemImage: "curlybraces") }
+                .tag(EditorSection.json)
         }
     }
 
@@ -103,7 +114,10 @@ struct RootView: View {
         } detail: {
             NavigationStack {
                 switch selectedSection ?? .source {
-                case .source: SourceEditor()
+                case .source: SourceEditor(viewCodeAction: { selectedSection = .json }, addAppAction: {
+                    store.source.apps.append(AltApp())
+                    selectedSection = .apps
+                })
                 case .apps: AppsScreen()
                 case .news: NewsScreen()
                 case .json: jsonScreen
@@ -260,32 +274,292 @@ private enum EditorSection: String, CaseIterable, Identifiable {
 
 struct SourceEditor: View {
     @EnvironmentObject private var store: SourceStore
-    var body: some View {
-        Form {
-            Section("기본 정보") {
-                TextField("소스 이름 *", text: $store.source.name)
-                TextField("소스 식별자", text: $store.source.identifier).textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("부제목", text: $store.source.subtitle)
-                TextField("설명", text: $store.source.sourceDescription, axis: .vertical).lineLimit(3...6)
-            }
-            Section("이미지 및 색상") {
-                TextField("아이콘 URL", text: $store.source.iconURL).urlField()
-                TextField("헤더 이미지 URL", text: $store.source.headerURL).urlField()
-                TextField("테마 색상 (#RRGGBB)", text: $store.source.tintColor)
-            }
-            Section("링크") {
-                TextField("Fediverse 사용자 이름", text: $store.source.fediUsername)
-            }
-            Section {
-                TextField("Bundle ID를 한 줄에 하나씩", text: Binding(
-                    get: { store.source.featuredApps.joined(separator: ", ") },
-                    set: { store.source.featuredApps = $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
-                ), axis: .vertical)
-            } header: { Text("추천 앱") } footer: { Text("쉼표로 구분해 입력합니다. 최대 5개가 표시됩니다.") }
+    let viewCodeAction: () -> Void
+    let addAppAction: () -> Void
+    @State private var searchText = ""
+
+    private var visibleApps: [AltApp] {
+        let apps = store.source.apps.filter { app in
+            searchText.isEmpty || app.name.localizedCaseInsensitiveContains(searchText)
+                || app.bundleIdentifier.localizedCaseInsensitiveContains(searchText)
         }
-        .navigationTitle("소스 설정")
+        let selected = store.source.featuredApps.compactMap { id in apps.first { $0.bundleIdentifier == id } }
+        return selected + apps.filter { !store.source.featuredApps.contains($0.bundleIdentifier) }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                HStack {
+                    Spacer()
+                    Button(action: viewCodeAction) { Label("View code", systemImage: "chevron.left.forwardslash.chevron.right") }
+                        .font(.headline)
+                }
+                Text("Source")
+                    .font(.system(size: 34, weight: .bold))
+                    .padding(.bottom, 8)
+
+                SourceImageField(title: "Header image", url: $store.source.headerURL, isHeader: true)
+                SourceImageField(title: "Icon", url: $store.source.iconURL, isHeader: false)
+
+                SourceTextField(title: "Tint color", text: $store.source.tintColor) {
+                    ColorPicker("Tint color", selection: Binding(
+                        get: { sourceTintColor(store.source.tintColor) },
+                        set: { store.source.tintColor = sourceHexColor($0) }
+                    ), supportsOpacity: false)
+                    .labelsHidden()
+                }
+                SourceTextField(title: "Name", text: $store.source.name)
+                SourceTextField(title: "Subtitle (optional)", text: $store.source.subtitle)
+                SourceTextField(title: "Description (optional)", text: $store.source.sourceDescription, multiline: true)
+                SourceTextField(title: "Website (optional)", text: $store.source.website, isURL: true)
+                SourceTextField(title: "Patreon URL (optional)", text: $store.source.patreonURL, isURL: true)
+                Text("Website와 Patreon URL은 NightFox JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, -18)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Featured apps")
+                        Spacer()
+                        Button(action: addAppAction) { Label("Add", systemImage: "plus") }
+                            .font(.headline)
+                    }
+                    featuredAppsPanel
+                }
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: 760)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 32)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(uiColor: .systemBackground))
+        .toolbar(.hidden, for: .navigationBar)
         .keyboardDismissButton()
     }
+
+    private var featuredAppsPanel: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            .padding(12)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+            .padding(12)
+
+            if store.source.apps.isEmpty {
+                Text("앱을 추가하면 이곳에서 추천 앱을 선택할 수 있습니다.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            } else if visibleApps.isEmpty {
+                Text("검색 결과가 없습니다.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            } else {
+                ForEach(Array(visibleApps.enumerated()), id: \.offset) { _, app in
+                    featuredRow(app)
+                }
+            }
+        }
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func featuredRow(_ app: AltApp) -> some View {
+        let selected = store.source.featuredApps.contains(app.bundleIdentifier)
+        return HStack(spacing: 12) {
+            Menu {
+                Button("위로 이동", systemImage: "arrow.up") { moveFeatured(app.bundleIdentifier, offset: -1) }
+                    .disabled(!selected || store.source.featuredApps.first == app.bundleIdentifier)
+                Button("아래로 이동", systemImage: "arrow.down") { moveFeatured(app.bundleIdentifier, offset: 1) }
+                    .disabled(!selected || store.source.featuredApps.last == app.bundleIdentifier)
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 44)
+            }
+            .accessibilityLabel("\(app.name) 순서 변경")
+            RemoteImage(url: app.iconURL, systemName: "app")
+                .frame(width: 38, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(app.name.isEmpty ? "새 앱" : app.name).font(.body).lineLimit(1)
+                Text(app.bundleIdentifier).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button { toggleFeatured(app.bundleIdentifier) } label: {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selected ? .blue : .gray)
+            }
+            .accessibilityLabel(selected ? "추천 앱에서 제거" : "추천 앱으로 선택")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func toggleFeatured(_ id: String) {
+        guard !id.isEmpty else { return }
+        let validIDs = Set(store.source.apps.map(\.bundleIdentifier))
+        store.source.featuredApps.removeAll { !validIDs.contains($0) }
+        if let index = store.source.featuredApps.firstIndex(of: id) {
+            store.source.featuredApps.remove(at: index)
+        } else if store.source.featuredApps.count < 5 {
+            store.source.featuredApps.append(id)
+        } else {
+            store.message = "추천 앱은 최대 5개까지 선택할 수 있습니다."
+        }
+    }
+
+    private func moveFeatured(_ id: String, offset: Int) {
+        guard let index = store.source.featuredApps.firstIndex(of: id),
+              store.source.featuredApps.indices.contains(index + offset) else { return }
+        store.source.featuredApps.swapAt(index, index + offset)
+    }
+}
+
+private struct SourceImageField: View {
+    let title: String
+    @Binding var url: String
+    let isHeader: Bool
+    @State private var selectedImage: PhotosPickerItem?
+    @State private var localPreview: Data?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 14) {
+                Group {
+                    if let localPreview, let image = UIImage(data: localPreview) {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    } else {
+                        RemoteImage(url: url, systemName: "photo")
+                    }
+                }
+                .frame(width: isHeader ? 96 : 70, height: isHeader ? 76 : 70)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.subheadline)
+                    TextField("Image URL", text: $url)
+                        .urlField()
+                        .padding(.horizontal, 12)
+                        .frame(height: 38)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                    HStack {
+                        PhotosPicker(selection: $selectedImage, matching: .images) {
+                            Text("Browse image")
+                        }
+                        Spacer()
+                        if !url.isEmpty || localPreview != nil {
+                            Button("Delete", role: .destructive) {
+                                url = ""
+                                localPreview = nil
+                                selectedImage = nil
+                            }
+                            .foregroundStyle(.red)
+                        }
+                    }
+                    .font(.subheadline)
+                }
+            }
+            if localPreview != nil {
+                Text("선택한 파일은 미리보기용입니다. JSON에는 위 URL이 저장됩니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: selectedImage) { _, item in
+            Task { localPreview = try? await item?.loadTransferable(type: Data.self) }
+        }
+        .onChange(of: url) { _, _ in localPreview = nil }
+    }
+}
+
+private struct RemoteImage: View {
+    let url: String
+    let systemName: String
+    var body: some View {
+        AsyncImage(url: URL(string: url)) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFill()
+            } else {
+                Rectangle().fill(Color(uiColor: .secondarySystemBackground))
+                    .overlay(Image(systemName: systemName).foregroundStyle(.secondary))
+            }
+        }
+        .clipped()
+    }
+}
+
+private struct SourceTextField<Accessory: View>: View {
+    let title: String
+    @Binding var text: String
+    var multiline = false
+    var isURL = false
+    @ViewBuilder var accessory: () -> Accessory
+
+    init(title: String, text: Binding<String>, multiline: Bool = false, isURL: Bool = false,
+         @ViewBuilder accessory: @escaping () -> Accessory) {
+        self.title = title
+        self._text = text
+        self.multiline = multiline
+        self.isURL = isURL
+        self.accessory = accessory
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.subheadline)
+            HStack(alignment: multiline ? .top : .center) {
+                Group {
+                    if multiline {
+                        TextField("", text: $text, axis: .vertical).lineLimit(5...8)
+                    } else {
+                        TextField("", text: $text)
+                            .textInputAutocapitalization(isURL ? .never : .sentences)
+                            .autocorrectionDisabled(isURL)
+                            .keyboardType(isURL ? .URL : .default)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                accessory()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, multiline ? 12 : 0)
+            .frame(minHeight: multiline ? 92 : 38)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+}
+
+private extension SourceTextField where Accessory == EmptyView {
+    init(title: String, text: Binding<String>, multiline: Bool = false, isURL: Bool = false) {
+        self.init(title: title, text: text, multiline: multiline, isURL: isURL) { EmptyView() }
+    }
+}
+
+private func sourceTintColor(_ hex: String) -> Color {
+    let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+    guard value.count == 6, let number = Int(value, radix: 16) else { return .gray }
+    return Color(red: Double((number >> 16) & 0xff) / 255,
+                 green: Double((number >> 8) & 0xff) / 255,
+                 blue: Double(number & 0xff) / 255)
+}
+
+private func sourceHexColor(_ color: Color) -> String {
+    var red: CGFloat = 0
+    var green: CGFloat = 0
+    var blue: CGFloat = 0
+    var alpha: CGFloat = 0
+    UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    return String(format: "#%02x%02x%02x", Int(red * 255), Int(green * 255), Int(blue * 255))
 }
 
 struct AppsScreen: View {
