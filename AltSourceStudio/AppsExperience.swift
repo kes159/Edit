@@ -43,8 +43,8 @@ extension View {
                         onChange: @escaping (CGFloat) -> Void,
                         onEnd: @escaping (CGFloat) -> Void) -> some View {
         simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.3)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateSpace)))
+            LongPressGesture(minimumDuration: 0.5, maximumDistance: 8)
+                .sequenced(before: DragGesture(minimumDistance: 4, coordinateSpace: .named(coordinateSpace)))
                 .onChanged { phase in
                     if case .second(true, let drag?) = phase { onChange(drag.location.y) }
                 }
@@ -75,6 +75,7 @@ struct AppsScreen: View {
     }
 
     var body: some View {
+        ZStack(alignment: .topLeading) {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("앱").font(.system(size: 34, weight: .bold)).padding(.top, 14)
@@ -140,10 +141,7 @@ struct AppsScreen: View {
                             }
                             .contentShape(Rectangle())
                             .reorderFrame(id: "app:\(app.editorID.uuidString)", in: "appsReorder")
-                            .offset(y: dragOffset(for: app.editorID))
-                            .scaleEffect(draggedAppID == app.editorID ? 1.025 : 1)
-                            .shadow(color: .black.opacity(draggedAppID == app.editorID ? 0.22 : 0), radius: 12, y: 8)
-                            .zIndex(draggedAppID == app.editorID ? 1 : 0)
+                            .opacity(draggedAppID == app.editorID ? 0.001 : 1)
                             }
                         }
                     }
@@ -153,6 +151,18 @@ struct AppsScreen: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 28)
             .frame(maxWidth: .infinity)
+        }
+        if let draggedAppID,
+           let app = store.source.apps.first(where: { $0.editorID == draggedAppID }),
+           let frame = dragFrames["app:\(draggedAppID.uuidString)"] {
+            dragPreview(app)
+                .frame(width: frame.width)
+                .scaleEffect(1.025)
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
+                .position(x: frame.midX, y: dragFingerY - dragTouchOffset)
+                .allowsHitTesting(false)
+                .zIndex(1)
+        }
         }
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "appsReorder")
@@ -188,6 +198,19 @@ struct AppsScreen: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.opacity(0.23), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func dragPreview(_ app: AltApp) -> some View {
+        HStack(spacing: 7) {
+            if editing {
+                Image(systemName: "minus.circle.fill")
+                    .foregroundStyle(.red)
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.blue)
+                    .frame(width: 24, height: 44)
+            }
+            appCard(app)
+        }
     }
 
     private func removeApp(_ index: Int) {
@@ -226,11 +249,6 @@ struct AppsScreen: View {
         if let targetID, let slotIndex = dragSlotIndices[targetID] {
             moveApp(id, to: slotIndex)
         }
-    }
-
-    private func dragOffset(for id: UUID) -> CGFloat {
-        guard draggedAppID == id, let frame = rowFrames["app:\(id.uuidString)"] else { return 0 }
-        return dragFingerY - dragTouchOffset - frame.midY
     }
 
     private func endDrag(_ id: UUID, y: CGFloat) {
