@@ -608,7 +608,7 @@ private func appVersionDate(_ value: String) -> String {
     return "\(components[0])년 \(Int(components[1]) ?? 0)월 \(Int(components[2]) ?? 0)일"
 }
 
-private struct AppInputField: View {
+struct AppInputField: View {
     let title: String
     @Binding var text: String
     var placeholder = ""

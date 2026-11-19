@@ -85,6 +85,8 @@ struct RootView: View {
             Button("새 프로젝트 만들기", role: .destructive) {
                 store.newProject()
                 showWelcome = false
+                selectedTab = .source
+                selectedSection = .source
             }
         }
     }
@@ -102,9 +104,12 @@ struct RootView: View {
             NavigationStack { AppsScreen() }
                 .tabItem { Label("앱", systemImage: "apps.iphone") }
                 .tag(EditorSection.apps)
-            NavigationStack { NewsScreen() }
+            NavigationStack { NewsScreen(viewCodeAction: { selectedTab = .json }) }
                 .tabItem { Label("뉴스", systemImage: "newspaper") }
                 .tag(EditorSection.news)
+            NavigationStack { projectScreen }
+                .tabItem { Label("Project", systemImage: "hammer.fill") }
+                .tag(EditorSection.project)
             NavigationStack { jsonScreen }
                 .tabItem { Label("JSON", systemImage: "curlybraces") }
                 .tag(EditorSection.json)
@@ -134,7 +139,8 @@ struct RootView: View {
                     selectedSection = .apps
                 })
                 case .apps: AppsScreen()
-                case .news: NewsScreen()
+                case .news: NewsScreen(viewCodeAction: { selectedSection = .json })
+                case .project: projectScreen
                 case .json: jsonScreen
                 }
             }
@@ -143,10 +149,24 @@ struct RootView: View {
     }
 
     private var jsonScreen: some View {
-        JSONScreen(importAction: { importing = true }, exportAction: {
-            exportDocument = JSONFile(data: store.jsonData())
-            exporting = true
-        })
+        JSONScreen(importAction: { importing = true }, exportAction: beginExport)
+    }
+
+    private var projectScreen: some View {
+        ProjectScreen(
+            newAction: {
+                if store.hasSavedDraft { confirmingNewProject = true }
+                else { store.newProject(); selectedTab = .source; selectedSection = .source }
+            },
+            importAction: { importing = true },
+            exportAction: beginExport,
+            viewCodeAction: { selectedTab = .json; selectedSection = .json }
+        )
+    }
+
+    private func beginExport() {
+        exportDocument = JSONFile(data: store.jsonData())
+        exporting = true
     }
 
     private func beginImport(_ url: URL) {
@@ -297,13 +317,14 @@ struct WelcomeScreen: View {
 }
 
 private enum EditorSection: String, CaseIterable, Identifiable {
-    case source, apps, news, json
+    case source, apps, news, project, json
     var id: Self { self }
     var title: String {
         switch self {
         case .source: "소스 설정"
         case .apps: "앱"
         case .news: "뉴스"
+        case .project: "Project"
         case .json: "JSON 미리보기"
         }
     }
@@ -312,6 +333,7 @@ private enum EditorSection: String, CaseIterable, Identifiable {
         case .source: "square.stack.3d.up"
         case .apps: "apps.iphone"
         case .news: "newspaper"
+        case .project: "hammer.fill"
         case .json: "curlybraces"
         }
     }
@@ -754,52 +776,6 @@ struct PermissionsEditor: View {
             }
         }
         .navigationTitle("권한")
-        .keyboardDismissButton()
-    }
-}
-
-struct NewsScreen: View {
-    @EnvironmentObject private var store: SourceStore
-    var body: some View {
-        List {
-            ForEach(store.source.news.indices, id: \.self) { index in
-                NavigationLink {
-                    NewsEditor(news: $store.source.news[index])
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(store.source.news[index].title.isEmpty ? "새 뉴스" : store.source.news[index].title).font(.headline)
-                        Text(store.source.news[index].date).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .onDelete { store.source.news.remove(atOffsets: $0) }
-        }
-        .overlay {
-            if store.source.news.isEmpty { ContentUnavailableView("뉴스가 없습니다", systemImage: "newspaper", description: Text("공지나 업데이트 소식을 추가하세요.")) }
-        }
-        .navigationTitle("뉴스")
-        .toolbar { Button { store.source.news.append(AltNews()) } label: { Image(systemName: "plus") } }
-    }
-}
-
-struct NewsEditor: View {
-    @Binding var news: AltNews
-    var body: some View {
-        Form {
-            Section("뉴스 정보") {
-                TextField("제목 *", text: $news.title)
-                TextField("고유 식별자 *", text: $news.identifier).textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("한 줄 요약 *", text: $news.caption, axis: .vertical).lineLimit(2...4)
-                TextField("게시일 (YYYY-MM-DD) *", text: $news.date)
-                Toggle("알림 보내기", isOn: $news.notify)
-            }
-            Section("표시 및 링크") {
-                TextField("이미지 URL", text: $news.imageURL).urlField()
-                TextField("테마 색상 (#RRGGBB)", text: $news.tintColor)
-                TextField("관련 앱 Bundle ID", text: $news.appID)
-            }
-        }
-        .navigationTitle(news.title.isEmpty ? "새 뉴스" : news.title)
         .keyboardDismissButton()
     }
 }
