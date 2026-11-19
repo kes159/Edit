@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 final class SourceStore: ObservableObject {
+    private var importedJSON: Data?
     @Published var source: AltSource {
         didSet { save() }
     }
@@ -10,6 +11,7 @@ final class SourceStore: ObservableObject {
     var hasSavedDraft: Bool { UserDefaults.standard.data(forKey: "altSourceDraft") != nil }
 
     init() {
+        importedJSON = UserDefaults.standard.data(forKey: "altSourceImportedJSON")
         if let data = UserDefaults.standard.data(forKey: "altSourceDraft"),
            let loaded = try? JSONDecoder().decode(AltSource.self, from: data) {
             source = loaded
@@ -24,10 +26,14 @@ final class SourceStore: ObservableObject {
         }
     }
 
+    func newProject() {
+        importedJSON = nil
+        UserDefaults.standard.removeObject(forKey: "altSourceImportedJSON")
+        source = AltSource()
+    }
+
     func jsonData() -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(source)) ?? Data("{}".utf8)
+        (try? SideStoreJSONFormatter.encode(source, preserving: importedJSON)) ?? Data("{}".utf8)
     }
 
     var jsonText: String { String(data: jsonData(), encoding: .utf8) ?? "{}" }
@@ -54,6 +60,8 @@ final class SourceStore: ObservableObject {
                 throw ImportFailure.invalidAltSource
             }
             let imported = try JSONDecoder().decode(AltSource.self, from: data)
+            importedJSON = data
+            UserDefaults.standard.set(data, forKey: "altSourceImportedJSON")
             source = imported
             message = "JSON을 가져왔습니다."
             return true

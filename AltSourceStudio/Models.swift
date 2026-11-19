@@ -13,6 +13,7 @@ private extension KeyedEncodingContainer {
 
 struct AltSource: Codable {
     var name = "My Source"
+    var identifier = ""
     var subtitle = ""
     var sourceDescription = ""
     var iconURL = ""
@@ -26,14 +27,14 @@ struct AltSource: Codable {
     var news: [AltNews] = []
 
     enum CodingKeys: String, CodingKey {
-        case name, subtitle, iconURL, headerURL, website, fediUsername, patreonURL, tintColor, featuredApps, apps, news
+        case name, identifier, subtitle, iconURL, headerURL, website, fediUsername, patreonURL, tintColor, featuredApps, apps, news
         case sourceDescription = "description"
     }
 
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        name = c.string(.name); subtitle = c.string(.subtitle); sourceDescription = c.string(.sourceDescription)
+        name = c.string(.name); identifier = c.string(.identifier); subtitle = c.string(.subtitle); sourceDescription = c.string(.sourceDescription)
         iconURL = c.string(.iconURL); headerURL = c.string(.headerURL); website = c.string(.website)
         fediUsername = c.string(.fediUsername); patreonURL = c.string(.patreonURL); tintColor = c.string(.tintColor)
         featuredApps = c.items(.featuredApps); apps = c.items(.apps); news = c.items(.news)
@@ -41,6 +42,7 @@ struct AltSource: Codable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(name, forKey: .name)
+        try c.nonempty(identifier, forKey: .identifier)
         try c.nonempty(subtitle, forKey: .subtitle); try c.nonempty(sourceDescription, forKey: .sourceDescription)
         try c.nonempty(iconURL, forKey: .iconURL); try c.nonempty(headerURL, forKey: .headerURL)
         try c.nonempty(website, forKey: .website); try c.nonempty(fediUsername, forKey: .fediUsername)

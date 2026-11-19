@@ -29,7 +29,7 @@ struct RootView: View {
                         if store.hasSavedDraft {
                             confirmingNewProject = true
                         } else {
-                            store.source = AltSource()
+                            store.newProject()
                             showWelcome = false
                         }
                     },
@@ -66,7 +66,7 @@ struct RootView: View {
         } message: { Text(store.message ?? "") }
         .confirmationDialog("현재 작업을 지우고 새 프로젝트를 만들까요?", isPresented: $confirmingNewProject) {
             Button("새 프로젝트 만들기", role: .destructive) {
-                store.source = AltSource()
+                store.newProject()
                 showWelcome = false
             }
         }
@@ -264,6 +264,7 @@ struct SourceEditor: View {
         Form {
             Section("기본 정보") {
                 TextField("소스 이름 *", text: $store.source.name)
+                TextField("소스 식별자", text: $store.source.identifier).textInputAutocapitalization(.never).autocorrectionDisabled()
                 TextField("부제목", text: $store.source.subtitle)
                 TextField("설명", text: $store.source.sourceDescription, axis: .vertical).lineLimit(3...6)
             }
@@ -273,8 +274,6 @@ struct SourceEditor: View {
                 TextField("테마 색상 (#RRGGBB)", text: $store.source.tintColor)
             }
             Section("링크") {
-                TextField("웹사이트", text: $store.source.website).urlField()
-                TextField("Patreon URL", text: $store.source.patreonURL).urlField()
                 TextField("Fediverse 사용자 이름", text: $store.source.fediUsername)
             }
             Section {
@@ -285,6 +284,7 @@ struct SourceEditor: View {
             } header: { Text("추천 앱") } footer: { Text("쉼표로 구분해 입력합니다. 최대 5개가 표시됩니다.") }
         }
         .navigationTitle("소스 설정")
+        .keyboardDismissButton()
     }
 }
 
@@ -328,7 +328,6 @@ struct AppEditor: View {
                 TextField("앱 이름 *", text: $app.name)
                 TextField("Bundle ID *", text: $app.bundleIdentifier).textInputAutocapitalization(.never).autocorrectionDisabled()
                 TextField("개발자 이름 *", text: $app.developerName)
-                TextField("Marketplace ID", text: $app.marketplaceID)
                 TextField("부제목", text: $app.subtitle)
                 TextField("설명", text: $app.localizedDescription, axis: .vertical).lineLimit(3...8)
                 Picker("카테고리", selection: $app.category) {
@@ -355,18 +354,10 @@ struct AppEditor: View {
             Section("권한") {
                 NavigationLink("Entitlements 및 개인정보 권한") { PermissionsEditor(permissions: $app.appPermissions) }
             }
-            Section("Patreon 전용 앱") {
-                TextField("최소 후원 금액", text: $app.patreon.pledge).keyboardType(.decimalPad)
-                TextField("통화 코드 (예: USD)", text: $app.patreon.currency).textInputAutocapitalization(.characters)
-                TextField("Benefit ID", text: $app.patreon.benefit)
-                TextField("Tier ID (쉼표로 구분)", text: Binding(
-                    get: { app.patreon.tiers.joined(separator: ", ") },
-                    set: { app.patreon.tiers = $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } }
-                ))
-            }
         }
         .navigationTitle(app.name.isEmpty ? "새 앱" : app.name)
         .toolbar { EditButton() }
+        .keyboardDismissButton()
     }
 }
 
@@ -383,7 +374,6 @@ struct VersionEditor: View {
             }
             Section("버전 정보") {
                 TextField("버전 번호 *", text: $version.version)
-                TextField("빌드 번호", text: $version.buildVersion)
                 TextField("표시 버전", text: $version.marketingVersion)
                 TextField("출시일 (YYYY-MM-DD) *", text: $version.date)
                 TextField("변경 사항", text: $version.localizedDescription, axis: .vertical).lineLimit(3...8)
@@ -398,6 +388,7 @@ struct VersionEditor: View {
             }
         }
         .navigationTitle("버전 편집")
+        .keyboardDismissButton()
     }
 }
 
@@ -409,6 +400,7 @@ struct ScreenshotsEditor: View {
             screenshotSection("iPad", items: $screenshots.ipad)
         }
         .navigationTitle("스크린샷")
+        .keyboardDismissButton()
     }
     private func screenshotSection(_ title: String, items: Binding<[Screenshot]>) -> some View {
         Section(title) {
@@ -445,6 +437,7 @@ struct PermissionsEditor: View {
             }
         }
         .navigationTitle("권한")
+        .keyboardDismissButton()
     }
 }
 
@@ -486,11 +479,27 @@ struct NewsEditor: View {
             Section("표시 및 링크") {
                 TextField("이미지 URL", text: $news.imageURL).urlField()
                 TextField("테마 색상 (#RRGGBB)", text: $news.tintColor)
-                TextField("열기 URL", text: $news.url).urlField()
                 TextField("관련 앱 Bundle ID", text: $news.appID)
             }
         }
         .navigationTitle(news.title.isEmpty ? "새 뉴스" : news.title)
+        .keyboardDismissButton()
+    }
+}
+
+private extension View {
+    func keyboardDismissButton() -> some View {
+        toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                } label: {
+                    Label("키보드 내리기", systemImage: "keyboard.chevron.compact.down")
+                }
+                .accessibilityLabel("키보드 내리기")
+            }
+        }
     }
 }
 

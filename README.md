@@ -1,17 +1,19 @@
 # AltSource Studio
 
-[AltStudio](https://altstudio.app/)의 AltSource 편집 흐름을 참고해 만든 독립형 SwiftUI iOS 앱입니다. AltStore의 [Make a Source 규격](https://faq.altstore.io/developers/make-a-source)에 맞는 JSON을 작성합니다.
+[AltStudio](https://altstudio.app/)의 AltSource 편집 흐름을 참고해 만든 독립형 SwiftUI iOS 앱입니다. JSON 저장 시 NightFox_Repository의 소스 변환 규칙에 맞춰 출력합니다.
 
 ## 기능
 
-- 소스 기본 정보, 이미지 URL, 색상, 링크, 추천 앱 편집
-- 앱과 버전, iPhone/iPad 스크린샷, 권한, Patreon 정보 편집
+- 소스 기본 정보, 식별자, 이미지 URL, 색상, 추천 앱 편집
+- 앱과 버전, iPhone/iPad 스크린샷, 권한 편집
 - 뉴스 항목 편집
 - 기존 AltSource JSON 가져오기, 실시간 JSON 미리보기, 파일로 저장
 - 필수 입력 항목과 중복 식별자 확인
 - 작업 내용 기기 내 자동 저장
 - iPad의 넓은 화면에서는 사이드바와 편집 화면을 나란히 표시하고, 좁은 창에서는 탭 화면으로 전환
 - 앱을 열면 시작 화면에서 새 프로젝트, 이전 작업 계속하기 또는 기존 JSON 가져오기를 선택
+- 입력 화면에서 키보드 위의 **키보드 내리기** 버튼으로 입력 종료
+- JSON 저장 시 버전 최신순 정렬, 날짜 `+09:00` 형식, 누락된 최소 iOS 버전 `16.1` 보정, NightFox GitHub 릴리스 URL의 프록시 주소 변환
 
 ## 사용법
 
@@ -32,4 +34,4 @@
 
 ## 범위
 
-AltStudio 웹사이트의 IPA/ADP 자동 스캔과 온라인 이미지 업로드는 포함하지 않았습니다. 해당 정보는 편집 화면에서 직접 입력합니다. 가져온 JSON 중 이 앱이 지원하지 않는 확장 필드는 내보낼 때 유지되지 않을 수 있으므로 원본 파일을 보관하세요.
+AltStudio 웹사이트의 IPA/ADP 자동 스캔과 온라인 이미지 업로드는 포함하지 않았습니다. 해당 정보는 편집 화면에서 직접 입력합니다. 가져온 JSON의 추가 필드는 편집 중에도 가능한 한 보존하며, NightFox 변환 규칙에서 제거하는 필드(`website`, `patreonURL`, `marketplaceID`, `buildVersion`, 뉴스 `url` 등)는 저장 결과에서 제외합니다.
