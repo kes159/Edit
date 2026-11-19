@@ -12,7 +12,6 @@ struct RootView: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var importing = false
-    @State private var pendingImportURL: URL?
     @State private var importStartedAt: Date?
     @State private var exporting = false
     @State private var exportDocument: JSONFile?
@@ -44,14 +43,12 @@ struct RootView: View {
                 compactLayout
             }
         }
-        .sheet(isPresented: $importing, onDismiss: {
-            if let url = pendingImportURL {
-                pendingImportURL = nil
-                beginImport(url)
-            }
-        }) {
+        .sheet(isPresented: $importing) {
             JSONImportPicker(
-                onPick: { url in pendingImportURL = url; importing = false },
+                onPick: { url in
+                    importing = false
+                    beginImport(url)
+                },
                 onCancel: { importing = false }
             )
         }
