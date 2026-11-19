@@ -377,8 +377,47 @@ struct AppsScreen: View {
 }
 
 private enum AppSheet: String, Identifiable {
-    case addVersion, addPrivacy, addEntitlement
+    case addVersion, addPrivacy, addEntitlement, packagePicker
     var id: String { rawValue }
+}
+
+private enum AppPackageType {
+    static let ipa = UTType(filenameExtension: "ipa") ?? UTType(importedAs: "com.apple.itunes.ipa", conformingTo: .data)
+    static let adp = UTType(importedAs: "app.altstudio.sourcecreator.adp", conformingTo: .data)
+    static let allowed = [ipa, adp]
+}
+
+private struct AppPackagePicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: AppPackageType.allowed, asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        let onCancel: () -> Void
+
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { onCancel(); return }
+            controller.dismiss(animated: true) { [onPick] in onPick(url) }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+    }
 }
 
 struct AppEditor: View {
@@ -390,7 +429,6 @@ struct AppEditor: View {
     @State private var showAllVersions = false
     @State private var showAllPrivacy = false
     @State private var editingVersions = false
-    @State private var scanningFile = false
     @State private var selectedFileName: String?
     @State private var newPrivacyKey = ""
     @State private var newPrivacyValue = ""
@@ -474,10 +512,12 @@ struct AppEditor: View {
                 addPrivacySheet
             case .addEntitlement:
                 addEntitlementSheet
+            case .packagePicker:
+                AppPackagePicker(
+                    onPick: { url in scanSelectedFile(url) },
+                    onCancel: { sheet = nil }
+                )
             }
-        }
-        .fileImporter(isPresented: $scanningFile, allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .zip, UTType(filenameExtension: "adp") ?? .zip]) { result in
-            scanSelectedFile(result)
         }
         .onChange(of: app.bundleIdentifier) { oldID, newID in
             if !oldID.isEmpty, let index = store.source.featuredApps.firstIndex(of: oldID) {
@@ -496,7 +536,7 @@ struct AppEditor: View {
             }
             .accessibilityLabel("대표 앱 선택")
             Spacer()
-            Button { scanningFile = true } label: { Label("IPA/ADP 파일 선택", systemImage: "doc") }
+            Button { openPackagePicker() } label: { Label("IPA/ADP 파일 선택", systemImage: "doc") }
                 .font(.subheadline)
             Menu {
                 Button("앱 복제", systemImage: "plus.square.on.square") {
@@ -553,7 +593,7 @@ struct AppEditor: View {
                         selectedFileName = nil
                         sheet = .addVersion
                     }
-                    Button("IPA/ADP 파일 선택", systemImage: "doc") { scanningFile = true }
+                    Button("IPA/ADP 파일 선택", systemImage: "doc") { openPackagePicker() }
                 } label: { Label("추가", systemImage: "plus") }
                 Button { editingVersions.toggle() } label: {
                     Label(editingVersions ? "완료" : "편집", systemImage: "square.and.pencil")
@@ -746,11 +786,16 @@ struct AppEditor: View {
         }
     }
 
-    private func scanSelectedFile(_ result: Result<URL, Error>) {
+    private func openPackagePicker() {
+        selectedFileName = nil
+        sheet = .packagePicker
+    }
+
+    private func scanSelectedFile(_ url: URL) {
         do {
-            let url = try result.get()
             let ext = url.pathExtension.lowercased()
             guard ext == "ipa" || ext == "adp" else {
+                sheet = nil
                 store.message = "IPA 또는 ADP 파일을 선택하세요."
                 return
             }
@@ -760,8 +805,9 @@ struct AppEditor: View {
             versionDraft = AltVersion()
             versionDraft.size = (attributes[.size] as? NSNumber)?.intValue ?? 0
             selectedFileName = url.lastPathComponent
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { sheet = .addVersion }
+            sheet = .addVersion
         } catch {
+            sheet = nil
             store.message = "파일을 열지 못했습니다: \(error.localizedDescription)"
         }
     }
