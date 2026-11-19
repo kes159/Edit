@@ -470,7 +470,7 @@ struct SourceEditor: View {
     }
 }
 
-private struct SourceImageField: View {
+struct SourceImageField: View {
     let title: String
     @Binding var url: String
     let isHeader: Bool
@@ -527,7 +527,7 @@ private struct SourceImageField: View {
     }
 }
 
-private struct RemoteImage: View {
+struct RemoteImage: View {
     let url: String
     let systemName: String
     var body: some View {
@@ -543,7 +543,7 @@ private struct RemoteImage: View {
     }
 }
 
-private struct SourceTextField<Accessory: View>: View {
+struct SourceTextField<Accessory: View>: View {
     let title: String
     @Binding var text: String
     var multiline = false
@@ -584,13 +584,13 @@ private struct SourceTextField<Accessory: View>: View {
     }
 }
 
-private extension SourceTextField where Accessory == EmptyView {
+extension SourceTextField where Accessory == EmptyView {
     init(title: String, text: Binding<String>, multiline: Bool = false, isURL: Bool = false) {
         self.init(title: title, text: text, multiline: multiline, isURL: isURL) { EmptyView() }
     }
 }
 
-private func sourceTintColor(_ hex: String) -> Color {
+func sourceTintColor(_ hex: String) -> Color {
     let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
     guard value.count == 6, let number = Int(value, radix: 16) else { return .gray }
     return Color(red: Double((number >> 16) & 0xff) / 255,
@@ -598,86 +598,13 @@ private func sourceTintColor(_ hex: String) -> Color {
                  blue: Double(number & 0xff) / 255)
 }
 
-private func sourceHexColor(_ color: Color) -> String {
+func sourceHexColor(_ color: Color) -> String {
     var red: CGFloat = 0
     var green: CGFloat = 0
     var blue: CGFloat = 0
     var alpha: CGFloat = 0
     UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
     return String(format: "#%02x%02x%02x", Int(red * 255), Int(green * 255), Int(blue * 255))
-}
-
-struct AppsScreen: View {
-    @EnvironmentObject private var store: SourceStore
-    var body: some View {
-        List {
-            ForEach(store.source.apps.indices, id: \.self) { index in
-                NavigationLink {
-                    AppEditor(app: $store.source.apps[index])
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(store.source.apps[index].name.isEmpty ? "새 앱" : store.source.apps[index].name).font(.headline)
-                        Text(store.source.apps[index].bundleIdentifier.isEmpty ? "Bundle ID 입력 필요" : store.source.apps[index].bundleIdentifier)
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .onDelete { store.source.apps.remove(atOffsets: $0) }
-            .onMove { store.source.apps.move(fromOffsets: $0, toOffset: $1) }
-        }
-        .overlay {
-            if store.source.apps.isEmpty { ContentUnavailableView("앱이 없습니다", systemImage: "apps.iphone", description: Text("앱을 추가해 AltSource 목록을 만드세요.")) }
-        }
-        .navigationTitle("앱")
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) { EditButton() }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { store.source.apps.append(AltApp()) } label: { Image(systemName: "plus") }
-            }
-        }
-    }
-}
-
-struct AppEditor: View {
-    @Binding var app: AltApp
-    private let categories = ["developer", "entertainment", "games", "lifestyle", "other", "photo-video", "social", "utilities"]
-    var body: some View {
-        Form {
-            Section("기본 정보") {
-                TextField("앱 이름 *", text: $app.name)
-                TextField("Bundle ID *", text: $app.bundleIdentifier).textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("개발자 이름 *", text: $app.developerName)
-                TextField("부제목", text: $app.subtitle)
-                TextField("설명", text: $app.localizedDescription, axis: .vertical).lineLimit(3...8)
-                Picker("카테고리", selection: $app.category) {
-                    ForEach(categories, id: \.self) { Text($0).tag($0) }
-                }
-            }
-            Section("이미지 및 색상") {
-                TextField("아이콘 URL *", text: $app.iconURL).urlField()
-                TextField("테마 색상 (#RRGGBB)", text: $app.tintColor)
-                NavigationLink("스크린샷 (\(app.screenshots.iphone.count + app.screenshots.ipad.count))") {
-                    ScreenshotsEditor(screenshots: $app.screenshots)
-                }
-            }
-            Section("버전 · 첫 항목이 최신 버전") {
-                ForEach(app.versions.indices, id: \.self) { index in
-                    NavigationLink(app.versions[index].version.isEmpty ? "새 버전" : app.versions[index].version) {
-                        VersionEditor(version: $app.versions[index])
-                    }
-                }
-                .onDelete { app.versions.remove(atOffsets: $0) }
-                .onMove { app.versions.move(fromOffsets: $0, toOffset: $1) }
-                Button { app.versions.insert(AltVersion(), at: 0) } label: { Label("버전 추가", systemImage: "plus") }
-            }
-            Section("권한") {
-                NavigationLink("Entitlements 및 개인정보 권한") { PermissionsEditor(permissions: $app.appPermissions) }
-            }
-        }
-        .navigationTitle(app.name.isEmpty ? "새 앱" : app.name)
-        .toolbar { EditButton() }
-        .keyboardDismissButton()
-    }
 }
 
 struct VersionEditor: View {
@@ -806,7 +733,7 @@ struct NewsEditor: View {
     }
 }
 
-private extension View {
+extension View {
     func keyboardDismissButton() -> some View {
         toolbar {
             ToolbarItemGroup(placement: .keyboard) {
