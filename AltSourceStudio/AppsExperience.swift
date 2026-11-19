@@ -55,20 +55,48 @@ extension View {
     }
 }
 
+private enum AppReorderTransfer {
+    static let contentType = UTType(exportedAs: "app.altstudio.sourcecreator.app-reorder", conformingTo: .data)
+
+    static func provider(for id: UUID) -> NSItemProvider {
+        let provider = NSItemProvider()
+        let data = Data(id.uuidString.utf8)
+        provider.registerDataRepresentation(for: contentType, visibility: .ownProcess) { completion in
+            completion(data, nil)
+            return nil
+        }
+        return provider
+    }
+
+    static func receive(_ info: DropInfo, completion: @escaping (UUID) -> Void) -> Bool {
+        guard let provider = info.itemProviders(for: [contentType.identifier]).first else { return false }
+        _ = provider.loadDataRepresentation(for: contentType) { data, _ in
+            guard let data,
+                  let id = UUID(uuidString: String(decoding: data, as: UTF8.self)) else { return }
+            DispatchQueue.main.async { completion(id) }
+        }
+        return true
+    }
+}
+
+private final class AppReorderSession {
+    var draggedID: UUID?
+}
+
 private struct AppReorderDropDelegate: DropDelegate {
     let targetID: UUID
     let store: SourceStore
-    @Binding var draggingID: UUID?
+    let session: AppReorderSession
     let didDrop: (UUID) -> Void
 
-    func validateDrop(info: DropInfo) -> Bool {
-        draggingID != nil
+    func dropEntered(info: DropInfo) {
+        guard let draggedID = session.draggedID else { return }
+        moveApp(draggedID)
     }
 
-    func dropEntered(info: DropInfo) {
-        guard let draggingID,
-              draggingID != targetID,
-              let sourceIndex = store.source.apps.firstIndex(where: { $0.editorID == draggingID }),
+    private func moveApp(_ draggedID: UUID) {
+        guard draggedID != targetID,
+              let sourceIndex = store.source.apps.firstIndex(where: { $0.editorID == draggedID }),
               let targetIndex = store.source.apps.firstIndex(where: { $0.editorID == targetID })
         else { return }
         withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.85)) {
@@ -84,10 +112,27 @@ private struct AppReorderDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let draggingID else { return false }
-        didDrop(draggingID)
-        self.draggingID = nil
-        return true
+        AppReorderTransfer.receive(info) { draggedID in
+            moveApp(draggedID)
+            didDrop(draggedID)
+            session.draggedID = nil
+        }
+    }
+}
+
+private struct AppListDropDelegate: DropDelegate {
+    let session: AppReorderSession
+    let didDrop: (UUID) -> Void
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        AppReorderTransfer.receive(info) { draggedID in
+            didDrop(draggedID)
+            session.draggedID = nil
+        }
     }
 }
 
@@ -99,7 +144,7 @@ struct AppsScreen: View {
     @State private var showingEditor = false
     @State private var lastDraggedAppID: UUID?
     @State private var lastDragEndedAt: Date = .distantPast
-    @State private var nativeDraggedAppID: UUID?
+    @State private var nativeDragSession = AppReorderSession()
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var dragFrames: [String: CGRect] = [:]
     @State private var dragSlotIndices: [UUID: Int] = [:]
@@ -175,8 +220,8 @@ struct AppsScreen: View {
                                 } label: {
                                     appCard(app)
                                         .onDrag {
-                                            nativeDraggedAppID = app.editorID
-                                            return NSItemProvider(object: app.editorID.uuidString as NSString)
+                                            nativeDragSession.draggedID = app.editorID
+                                            return AppReorderTransfer.provider(for: app.editorID)
                                         } preview: {
                                             appCard(app)
                                         }
@@ -186,10 +231,10 @@ struct AppsScreen: View {
                             .contentShape(Rectangle())
                             .reorderFrame(id: "app:\(app.editorID.uuidString)", in: "appsReorder")
                             .opacity(draggedAppID == app.editorID ? 0.001 : 1)
-                            .onDrop(of: [.plainText], delegate: AppReorderDropDelegate(
+                            .onDrop(of: [AppReorderTransfer.contentType], delegate: AppReorderDropDelegate(
                                 targetID: app.editorID,
                                 store: store,
-                                draggingID: $nativeDraggedAppID,
+                                session: nativeDragSession,
                                 didDrop: { id in
                                     lastDraggedAppID = id
                                     lastDragEndedAt = Date()
@@ -219,6 +264,13 @@ struct AppsScreen: View {
         }
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "appsReorder")
+        .onDrop(of: [AppReorderTransfer.contentType], delegate: AppListDropDelegate(
+            session: nativeDragSession,
+            didDrop: { id in
+                lastDraggedAppID = id
+                lastDragEndedAt = Date()
+            }
+        ))
         .onPreferenceChange(ReorderRowFrames.self) { rowFrames = $0 }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $showingEditor) {
