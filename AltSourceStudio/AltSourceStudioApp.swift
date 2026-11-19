@@ -340,24 +340,24 @@ struct SourceEditor: View {
                     Button(action: viewCodeAction) { Label("View code", systemImage: "chevron.left.forwardslash.chevron.right") }
                         .font(.headline)
                 }
-                Text("Source")
+                Text("소스")
                     .font(.system(size: 34, weight: .bold))
                     .padding(.bottom, 8)
 
-                SourceImageField(title: "Header image", url: $store.source.headerURL, isHeader: true)
-                SourceImageField(title: "Icon", url: $store.source.iconURL, isHeader: false)
+                SourceImageField(title: "헤더 이미지", url: $store.source.headerURL, isHeader: true)
+                SourceImageField(title: "아이콘", url: $store.source.iconURL, isHeader: false)
 
-                SourceTextField(title: "Tint color", text: $store.source.tintColor) {
-                    ColorPicker("Tint color", selection: Binding(
+                SourceTextField(title: "틴트 컬러", text: $store.source.tintColor) {
+                    ColorPicker("틴트 컬러", selection: Binding(
                         get: { sourceTintColor(store.source.tintColor) },
                         set: { store.source.tintColor = sourceHexColor($0) }
                     ), supportsOpacity: false)
                     .labelsHidden()
                 }
-                SourceTextField(title: "Name", text: $store.source.name)
-                SourceTextField(title: "Subtitle (optional)", text: $store.source.subtitle)
-                SourceTextField(title: "Description (optional)", text: $store.source.sourceDescription, multiline: true)
-                SourceTextField(title: "Website (optional)", text: $store.source.website, isURL: true)
+                SourceTextField(title: "소스 이름", text: $store.source.name)
+                SourceTextField(title: "소스 부제목 (선택 사항)", text: $store.source.subtitle)
+                SourceTextField(title: "소스 설명 (선택 사항)", text: $store.source.sourceDescription, multiline: true)
+                SourceTextField(title: "웹사이트 (선택 사항)", text: $store.source.website, isURL: true)
                 SourceTextField(title: "Patreon URL (optional)", text: $store.source.patreonURL, isURL: true)
                 Text("Website와 Patreon URL은 NightFox JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
                     .font(.caption)
@@ -366,7 +366,7 @@ struct SourceEditor: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Featured apps")
+                        Text("대표 앱")
                         Spacer()
                         Button(action: addAppAction) { Label("Add", systemImage: "plus") }
                             .font(.headline)
