@@ -11,24 +11,51 @@ struct RootView: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var importing = false
+    @State private var pendingImport: Result<Data, Error>?
     @State private var exporting = false
     @State private var exportDocument: JSONFile?
+    @State private var showWelcome = true
+    @State private var confirmingNewProject = false
     @State private var selectedSection: EditorSection? = .source
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
         Group {
-            if UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular {
+            if showWelcome {
+                WelcomeScreen(
+                    hasDraft: store.hasSavedDraft,
+                    importAction: { importing = true },
+                    newProjectAction: {
+                        if store.hasSavedDraft {
+                            confirmingNewProject = true
+                        } else {
+                            store.source = AltSource()
+                            showWelcome = false
+                        }
+                    },
+                    continueAction: { showWelcome = false }
+                )
+            } else if UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular {
                 iPadLayout
             } else {
                 compactLayout
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-            switch result {
-            case .success(let url): store.importJSON(url)
-            case .failure(let error): store.message = error.localizedDescription
+        .sheet(isPresented: $importing, onDismiss: {
+            if let result = pendingImport {
+                pendingImport = nil
+                switch result {
+                case .success(let data):
+                    if store.importJSON(data) { showWelcome = false }
+                case .failure(let error):
+                    store.message = "JSON 파일을 열지 못했습니다: \(error.localizedDescription)"
+                }
             }
+        }) {
+            JSONImportPicker(
+                onPick: { result in pendingImport = result; importing = false },
+                onCancel: { importing = false }
+            )
         }
         .fileExporter(isPresented: $exporting, document: exportDocument, contentType: .json,
                       defaultFilename: "AltSource.json") { result in
@@ -37,6 +64,12 @@ struct RootView: View {
         .alert("AltSource Studio", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("확인", role: .cancel) { store.message = nil }
         } message: { Text(store.message ?? "") }
+        .confirmationDialog("현재 작업을 지우고 새 프로젝트를 만들까요?", isPresented: $confirmingNewProject) {
+            Button("새 프로젝트 만들기", role: .destructive) {
+                store.source = AltSource()
+                showWelcome = false
+            }
+        }
     }
 
     private var compactLayout: some View {
@@ -85,6 +118,122 @@ struct RootView: View {
             exportDocument = JSONFile(data: store.jsonData())
             exporting = true
         })
+    }
+}
+
+struct JSONImportPicker: UIViewControllerRepresentable {
+    let onPick: (Result<Data, Error>) -> Void
+    let onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText, .data], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (Result<Data, Error>) -> Void
+        let onCancel: () -> Void
+        init(onPick: @escaping (Result<Data, Error>) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { onCancel(); return }
+            let granted = url.startAccessingSecurityScopedResource()
+            defer { if granted { url.stopAccessingSecurityScopedResource() } }
+            onPick(Result { try Data(contentsOf: url) })
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+    }
+}
+
+struct WelcomeScreen: View {
+    let hasDraft: Bool
+    let importAction: () -> Void
+    let newProjectAction: () -> Void
+    let continueAction: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack {
+                    Spacer(minLength: 24)
+                    VStack(spacing: 24) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 25)
+                                .fill(LinearGradient(colors: [.indigo, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            Text("{ }")
+                                .font(.system(size: 40, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        }
+                        .frame(width: 86, height: 86)
+                        .accessibilityHidden(true)
+
+                        Text("Welcome to AltSource Studio")
+                            .font(.system(size: UIDevice.current.userInterfaceIdiom == .pad ? 34 : 28,
+                                          weight: .bold, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("AltStore용 소스 JSON을 만들고 관리하세요. 앱과 뉴스 정보를 입력한 뒤 JSON 파일로 저장할 수 있습니다.")
+                            .font(.body)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 22) {
+                            feature("rectangle.split.2x1", "편리한 편집", "소스, 앱, 버전과 뉴스를 한곳에서 관리합니다.")
+                            feature("arrow.down.doc", "기존 JSON 가져오기", "파일 앱에서 AltSource JSON을 선택해 계속 편집합니다.")
+                            feature("ipad.and.iphone", "iPhone·iPad 지원", "화면 크기에 맞는 편집 화면으로 작업합니다.")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 10)
+
+                        Button(action: importAction) {
+                            Text("JSON 가져오기")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("새 프로젝트", action: newProjectAction)
+                            .font(.headline)
+
+                        if hasDraft {
+                            Button("이전 작업 계속하기", action: continueAction)
+                                .font(.subheadline)
+                        }
+                    }
+                    .padding(28)
+                    .frame(maxWidth: 650)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 26))
+                    Spacer(minLength: 24)
+                }
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                .padding(.horizontal, 18)
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+    }
+
+    private func feature(_ icon: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(.blue)
+                .frame(width: 34)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

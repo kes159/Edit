@@ -7,6 +7,7 @@ final class SourceStore: ObservableObject {
         didSet { save() }
     }
     @Published var message: String?
+    var hasSavedDraft: Bool { UserDefaults.standard.data(forKey: "altSourceDraft") != nil }
 
     init() {
         if let data = UserDefaults.standard.data(forKey: "altSourceDraft"),
@@ -31,16 +32,34 @@ final class SourceStore: ObservableObject {
 
     var jsonText: String { String(data: jsonData(), encoding: .utf8) ?? "{}" }
 
-    func importJSON(_ url: URL) {
+    @discardableResult
+    func importJSON(_ url: URL) -> Bool {
         let granted = url.startAccessingSecurityScopedResource()
         defer { if granted { url.stopAccessingSecurityScopedResource() } }
         do {
-            let data = try Data(contentsOf: url)
+            return importJSON(try Data(contentsOf: url))
+        } catch {
+            message = "JSON 파일을 열지 못했습니다: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func importJSON(_ data: Data) -> Bool {
+        do {
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["name"] is String,
+                  object["apps"] is [Any],
+                  (object["news"] == nil || object["news"] is [Any]) else {
+                throw ImportFailure.invalidAltSource
+            }
             let imported = try JSONDecoder().decode(AltSource.self, from: data)
             source = imported
             message = "JSON을 가져왔습니다."
+            return true
         } catch {
             message = "JSON을 읽지 못했습니다: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -74,6 +93,13 @@ final class SourceStore: ObservableObject {
             }
         }
         return result
+    }
+}
+
+private enum ImportFailure: LocalizedError {
+    case invalidAltSource
+    var errorDescription: String? {
+        "AltSource JSON에는 name과 apps 항목이 필요합니다."
     }
 }
 
