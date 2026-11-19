@@ -112,7 +112,7 @@ private struct NewsCard: View {
             .background(tint)
             if let app {
                 HStack(spacing: 12) {
-                    RemoteImage(url: app.iconURL, systemName: "app.fill")
+                    RemoteImage(url: app.iconURL, systemName: "app.fill", localData: app.iconPreviewData)
                         .frame(width: 54, height: 54).clipShape(RoundedRectangle(cornerRadius: 13))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(app.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
@@ -268,7 +268,7 @@ private struct AssociatedAppCard: View {
     private var tint: Color { sourceTintColor(app.tintColor) }
     var body: some View {
         HStack(spacing: 12) {
-            RemoteImage(url: app.iconURL, systemName: "app.fill")
+            RemoteImage(url: app.iconURL, systemName: "app.fill", localData: app.iconPreviewData)
                 .frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 4) {
                 Text(app.name).font(.headline).foregroundStyle(.primary).lineLimit(2)

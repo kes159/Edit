@@ -491,7 +491,7 @@ struct SourceEditor: View {
 
     private func featuredAppDetails(_ app: AltApp, selected: Bool) -> some View {
         HStack(spacing: 12) {
-            RemoteImage(url: app.iconURL, systemName: "app")
+            RemoteImage(url: app.iconURL, systemName: "app", localData: app.iconPreviewData)
                 .frame(width: 38, height: 38)
                 .clipShape(RoundedRectangle(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 3) {
@@ -569,17 +569,22 @@ struct SourceImageField: View {
     let title: String
     @Binding var url: String
     let isHeader: Bool
+    var importedPreview: Data? = nil
+    var clearImportedPreview: (() -> Void)? = nil
     @State private var selectedImage: PhotosPickerItem?
     @State private var localPreview: Data?
+    @State private var exportingIcon = false
+
+    private var previewData: Data? { localPreview ?? importedPreview }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 14) {
                 Group {
-                    if let localPreview, let image = UIImage(data: localPreview) {
+                    if url.isEmpty, let previewData, let image = UIImage(data: previewData) {
                         Image(uiImage: image).resizable().scaledToFill()
                     } else {
-                        RemoteImage(url: url, systemName: "photo")
+                        RemoteImage(url: url, systemName: "photo", localData: previewData)
                     }
                 }
                 .frame(width: isHeader ? 96 : 70, height: isHeader ? 76 : 70)
@@ -597,11 +602,12 @@ struct SourceImageField: View {
                             Text("이미지 선택")
                         }
                         Spacer()
-                        if !url.isEmpty || localPreview != nil {
+                        if !url.isEmpty || previewData != nil {
                             Button("삭제", role: .destructive) {
                                 url = ""
                                 localPreview = nil
                                 selectedImage = nil
+                                clearImportedPreview?()
                             }
                             .foregroundStyle(.red)
                         }
@@ -609,12 +615,20 @@ struct SourceImageField: View {
                     .font(.subheadline)
                 }
             }
-            if localPreview != nil {
-                Text("선택한 파일은 미리보기용입니다. JSON에는 위 URL이 저장됩니다.")
+            if previewData != nil {
+                if importedPreview != nil {
+                    Button("추출한 아이콘 저장") { exportingIcon = true }
+                        .font(.subheadline)
+                }
+                Text("아이콘 파일은 미리보기용입니다. JSON에는 공개 이미지 URL이 필요합니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
+        .fileExporter(isPresented: $exportingIcon,
+                      document: importedPreview.map(PNGFile.init),
+                      contentType: .png,
+                      defaultFilename: "AppIcon") { _ in }
         .onChange(of: selectedImage) { _, item in
             Task { localPreview = try? await item?.loadTransferable(type: Data.self) }
         }
@@ -625,13 +639,20 @@ struct SourceImageField: View {
 struct RemoteImage: View {
     let url: String
     let systemName: String
+    var localData: Data? = nil
     var body: some View {
-        AsyncImage(url: URL(string: url)) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
+        Group {
+            if url.isEmpty, let localData, let image = UIImage(data: localData) {
+                Image(uiImage: image).resizable().scaledToFill()
             } else {
-                Rectangle().fill(Color(uiColor: .secondarySystemBackground))
-                    .overlay(Image(systemName: systemName).foregroundStyle(.secondary))
+                AsyncImage(url: URL(string: url)) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        Rectangle().fill(Color(uiColor: .secondarySystemBackground))
+                            .overlay(Image(systemName: systemName).foregroundStyle(.secondary))
+                    }
+                }
             }
         }
         .clipped()

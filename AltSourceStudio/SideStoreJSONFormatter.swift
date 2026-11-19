@@ -49,7 +49,7 @@ enum SideStoreJSONFormatter {
             let old = (original["versions"] as? [[String: Any]])?.first { ($0["version"] as? String) == version.version } ?? [:]
             return format(version, preserving: old)
         }.sorted { versionNumbers($0["version"] as? String ?? "").lexicographicallyPrecedes(versionNumbers($1["version"] as? String ?? ""), by: >) }
-        for key in ["marketplaceID", "Build", "patreon"] { result.removeValue(forKey: key) }
+        for key in ["marketplaceID", "Build", "patreon", "iconPreviewData"] { result.removeValue(forKey: key) }
         return result
     }
 

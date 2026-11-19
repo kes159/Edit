@@ -285,7 +285,7 @@ struct AppsScreen: View {
     private func appCard(_ app: AltApp) -> some View {
         let tint = sourceTintColor(app.tintColor)
         return HStack(spacing: 14) {
-            RemoteImage(url: app.iconURL, systemName: "app")
+            RemoteImage(url: app.iconURL, systemName: "app", localData: app.iconPreviewData)
                 .frame(width: 64, height: 64)
                 .background(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -430,6 +430,7 @@ struct AppEditor: View {
     @State private var showAllPrivacy = false
     @State private var editingVersions = false
     @State private var selectedFileName: String?
+    @State private var scanningPackage = false
     @State private var newPrivacyKey = ""
     @State private var newPrivacyValue = ""
     @State private var newEntitlement = ""
@@ -459,7 +460,9 @@ struct AppEditor: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                SourceImageField(title: "아이콘", url: $app.iconURL, isHeader: false)
+                SourceImageField(title: "아이콘", url: $app.iconURL, isHeader: false,
+                                 importedPreview: app.iconPreviewData,
+                                 clearImportedPreview: { app.iconPreviewData = nil })
                 AppInputField(title: "앱 이름", text: $app.name)
                 AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
                 AppInputField(title: "마켓플레이스 ID (선택 사항)", text: $app.marketplaceID)
@@ -501,6 +504,19 @@ struct AppEditor: View {
         .navigationTitle("앱 편집")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .top, spacing: 0) { editorToolbar }
+        .overlay {
+            if scanningPackage {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large)
+                        Text("앱 파일 분석 중…").font(.headline)
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+            }
+        }
         .sheet(item: $sheet) { selected in
             switch selected {
             case .addVersion:
@@ -792,23 +808,31 @@ struct AppEditor: View {
     }
 
     private func scanSelectedFile(_ url: URL) {
-        do {
-            let ext = url.pathExtension.lowercased()
-            guard ext == "ipa" || ext == "adp" else {
-                sheet = nil
-                store.message = "IPA 또는 ADP 파일을 선택하세요."
-                return
+        sheet = nil
+        scanningPackage = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try AppPackageScanner.scan(url) }
+            DispatchQueue.main.async {
+                scanningPackage = false
+                switch result {
+                case .success(let package):
+                    if !package.name.isEmpty { app.name = package.name }
+                    if !package.bundleIdentifier.isEmpty { app.bundleIdentifier = package.bundleIdentifier }
+                    if let icon = package.iconData {
+                        app.iconPreviewData = icon
+                        app.iconURL = ""
+                    }
+                    versionDraft = AltVersion()
+                    versionDraft.version = package.version
+                    versionDraft.buildVersion = package.buildVersion
+                    versionDraft.minOSVersion = package.minOSVersion
+                    versionDraft.size = package.size
+                    selectedFileName = package.fileName
+                    sheet = .addVersion
+                case .failure(let error):
+                    store.message = "앱 파일을 분석하지 못했습니다: \(error.localizedDescription)"
+                }
             }
-            let granted = url.startAccessingSecurityScopedResource()
-            defer { if granted { url.stopAccessingSecurityScopedResource() } }
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            versionDraft = AltVersion()
-            versionDraft.size = (attributes[.size] as? NSNumber)?.intValue ?? 0
-            selectedFileName = url.lastPathComponent
-            sheet = .addVersion
-        } catch {
-            sheet = nil
-            store.message = "파일을 열지 못했습니다: \(error.localizedDescription)"
         }
     }
 }
@@ -875,7 +899,7 @@ private struct AddVersionSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if let fileName {
-                        Text("\(fileName)의 크기를 입력했습니다. 배포용 다운로드 URL과 버전 정보는 직접 입력해 주세요.")
+                        Text("\(fileName)의 앱 정보와 크기를 읽었습니다. 배포용 다운로드 URL은 직접 입력해 주세요.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     AppInputField(title: "IPA/ADP 다운로드 URL *", text: $version.downloadURL,
@@ -938,12 +962,17 @@ private struct AddVersionSheet: View {
                 .background(Color(uiColor: .systemBackground))
             }
             .onAppear {
-                if version.size > 0 { sizeText = String(format: "%.1f", Double(version.size) / 1_000_000) }
+                if version.size > 0 {
+                    if fileName != nil { sizeUnit = "bytes"; sizeText = String(version.size) }
+                    else { sizeText = String(Double(version.size) / 1_000_000) }
+                }
             }
             .onChange(of: sizeText) { _, _ in updateSize() }
             .onChange(of: sizeUnit) { _, _ in
                 if version.size > 0 {
-                    sizeText = String(format: "%.1f", Double(version.size) / sizeMultiplier)
+                    sizeText = sizeUnit == "bytes"
+                        ? String(version.size)
+                        : String(Double(version.size) / sizeMultiplier)
                 }
             }
             .keyboardDismissButton()

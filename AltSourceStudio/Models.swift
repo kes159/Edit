@@ -62,6 +62,8 @@ struct AltApp: Codable {
     var subtitle = ""
     var localizedDescription = ""
     var iconURL = ""
+    // Kept in the local draft for preview/export. AltSource JSON still requires a hosted iconURL.
+    var iconPreviewData: Data?
     var tintColor = ""
     var category = "other"
     var screenshots = AppScreenshots()
@@ -69,13 +71,14 @@ struct AltApp: Codable {
     var appPermissions = AppPermissions()
     var patreon = Patreon()
 
-    enum CodingKeys: String, CodingKey { case name, bundleIdentifier, marketplaceID, developerName, subtitle, localizedDescription, iconURL, tintColor, category, screenshots, versions, appPermissions, patreon }
+    enum CodingKeys: String, CodingKey { case name, bundleIdentifier, marketplaceID, developerName, subtitle, localizedDescription, iconURL, iconPreviewData, tintColor, category, screenshots, versions, appPermissions, patreon }
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = c.string(.name); bundleIdentifier = c.string(.bundleIdentifier); marketplaceID = c.string(.marketplaceID)
         developerName = c.string(.developerName); subtitle = c.string(.subtitle)
         localizedDescription = c.string(.localizedDescription); iconURL = c.string(.iconURL)
+        iconPreviewData = try? c.decodeIfPresent(Data.self, forKey: .iconPreviewData)
         tintColor = c.string(.tintColor); category = c.string(.category)
         if category.isEmpty { category = "other" }
         screenshots = (try? c.decodeIfPresent(AppScreenshots.self, forKey: .screenshots)) ?? AppScreenshots()
@@ -89,6 +92,7 @@ struct AltApp: Codable {
         try c.nonempty(marketplaceID, forKey: .marketplaceID); try c.encode(developerName, forKey: .developerName)
         try c.nonempty(subtitle, forKey: .subtitle); try c.encode(localizedDescription, forKey: .localizedDescription)
         try c.encode(iconURL, forKey: .iconURL); try c.nonempty(tintColor, forKey: .tintColor)
+        try c.encodeIfPresent(iconPreviewData, forKey: .iconPreviewData)
         try c.nonempty(category, forKey: .category)
         if !screenshots.iphone.isEmpty || !screenshots.ipad.isEmpty { try c.encode(screenshots, forKey: .screenshots) }
         try c.encode(versions, forKey: .versions)
