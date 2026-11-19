@@ -53,22 +53,29 @@ final class SourceStore: ObservableObject {
     @discardableResult
     func importJSON(_ data: Data) -> Bool {
         do {
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["name"] is String,
-                  object["apps"] is [Any],
-                  (object["news"] == nil || object["news"] is [Any]) else {
-                throw ImportFailure.invalidAltSource
-            }
-            let imported = try JSONDecoder().decode(AltSource.self, from: data)
-            importedJSON = data
-            UserDefaults.standard.set(data, forKey: "altSourceImportedJSON")
-            source = imported
-            message = "JSON을 가져왔습니다."
+            applyImportedJSON(try Self.decodeJSON(data), data: data)
             return true
         } catch {
             message = "JSON을 읽지 못했습니다: \(error.localizedDescription)"
             return false
         }
+    }
+
+    static func decodeJSON(_ data: Data) throws -> AltSource {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["name"] is String,
+              object["apps"] is [Any],
+              (object["news"] == nil || object["news"] is [Any]) else {
+            throw ImportFailure.invalidAltSource
+        }
+        return try JSONDecoder().decode(AltSource.self, from: data)
+    }
+
+    func applyImportedJSON(_ imported: AltSource, data: Data) {
+        importedJSON = data
+        UserDefaults.standard.set(data, forKey: "altSourceImportedJSON")
+        source = imported
+        message = "JSON을 가져왔습니다."
     }
 
     var issues: [String] {

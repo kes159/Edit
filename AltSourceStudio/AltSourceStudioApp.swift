@@ -12,7 +12,8 @@ struct RootView: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var importing = false
-    @State private var pendingImport: Result<Data, Error>?
+    @State private var pendingImportURL: URL?
+    @State private var importStartedAt: Date?
     @State private var exporting = false
     @State private var exportDocument: JSONFile?
     @State private var showWelcome = true
@@ -44,20 +45,34 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $importing, onDismiss: {
-            if let result = pendingImport {
-                pendingImport = nil
-                switch result {
-                case .success(let data):
-                    if store.importJSON(data) { showWelcome = false }
-                case .failure(let error):
-                    store.message = "JSON 파일을 열지 못했습니다: \(error.localizedDescription)"
-                }
+            if let url = pendingImportURL {
+                pendingImportURL = nil
+                beginImport(url)
             }
         }) {
             JSONImportPicker(
-                onPick: { result in pendingImport = result; importing = false },
+                onPick: { url in pendingImportURL = url; importing = false },
                 onCancel: { importing = false }
             )
+        }
+        .overlay {
+            if let started = importStartedAt {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large)
+                        Text("JSON 불러오는 중…").font(.headline)
+                        TimelineView(.periodic(from: started, by: 0.1)) { context in
+                            Text(String(format: "경과 %.1f초", max(0, context.date.timeIntervalSince(started))))
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+                .zIndex(1)
+            }
         }
         .fileExporter(isPresented: $exporting, document: exportDocument, contentType: .json,
                       defaultFilename: "AltSource.json") { result in
@@ -133,14 +148,46 @@ struct RootView: View {
             exporting = true
         })
     }
+
+    private func beginImport(_ url: URL) {
+        let started = Date()
+        importStartedAt = started
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: Result<(Data, AltSource), Error> = Result {
+                guard url.pathExtension.lowercased() == "json" else { throw JSONImportError.invalidExtension }
+                let granted = url.startAccessingSecurityScopedResource()
+                defer { if granted { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                return (data, try SourceStore.decodeJSON(data))
+            }
+            DispatchQueue.main.async {
+                let remaining = max(0, 0.5 - Date().timeIntervalSince(started))
+                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                    importStartedAt = nil
+                    switch result {
+                    case .success(let (data, source)):
+                        store.applyImportedJSON(source, data: data)
+                        showWelcome = false
+                    case .failure(let error):
+                        store.message = "JSON 파일을 불러오지 못했습니다: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum JSONImportError: LocalizedError {
+    case invalidExtension
+    var errorDescription: String? { "확장자가 .json인 파일만 선택할 수 있습니다." }
 }
 
 struct JSONImportPicker: UIViewControllerRepresentable {
-    let onPick: (Result<Data, Error>) -> Void
+    let onPick: (URL) -> Void
     let onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText, .data], asCopy: true)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json], asCopy: true)
         picker.allowsMultipleSelection = false
         picker.shouldShowFileExtensions = true
         picker.delegate = context.coordinator
@@ -151,17 +198,15 @@ struct JSONImportPicker: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (Result<Data, Error>) -> Void
+        let onPick: (URL) -> Void
         let onCancel: () -> Void
-        init(onPick: @escaping (Result<Data, Error>) -> Void, onCancel: @escaping () -> Void) {
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
             self.onPick = onPick
             self.onCancel = onCancel
         }
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { onCancel(); return }
-            let granted = url.startAccessingSecurityScopedResource()
-            defer { if granted { url.stopAccessingSecurityScopedResource() } }
-            onPick(Result { try Data(contentsOf: url) })
+            onPick(url)
         }
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
     }
