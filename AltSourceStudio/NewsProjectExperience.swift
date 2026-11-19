@@ -305,7 +305,6 @@ private func newsDisplayDate(_ value: String) -> String {
 }
 
 struct ProjectScreen: View {
-    @Environment(\.openURL) private var openURL
     let newAction: () -> Void
     let importAction: () -> Void
     let exportAction: () -> Void
@@ -322,30 +321,16 @@ struct ProjectScreen: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 17)
                 .background(LinearGradient(colors: [Color.mint.opacity(0.1), Color.mint.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
                 projectGroup("Actions", rows: [
-                    ("folder.badge.plus", "New", newAction),
-                    ("folder", "Import", importAction),
-                    ("square.and.arrow.up", "Export", exportAction),
-                    ("chevron.left.forwardslash.chevron.right", "View code", viewCodeAction)
-                ])
-                projectGroup("About", rows: [
-                    ("questionmark.circle", "FAQ", { open("https://altstudio.app/about/faq-popup/") }),
-                    ("star", "Project mission", { open("https://altstudio.app/about/mission-popup/") }),
-                    ("checkmark.circle", "Roadmap", { open("https://altstudio.app/about/roadmap-popup/") })
-                ])
-                projectGroup("Contacts", rows: [
-                    ("at", "X.com", { open("https://x.com/altstudio_app") }),
-                    ("paperplane", "Telegram", { open("https://t.me/altstudio_app") }),
-                    ("heart.fill", "Patreon", { open("https://patreon.com/altstudio") })
+                    ("folder.badge.plus", "소스 새로 만들기", newAction),
+                    ("folder", "JSON 불러오기", importAction),
+                    ("square.and.arrow.up", "JSON 내보내기", exportAction),
+                    ("chevron.left.forwardslash.chevron.right", "소스코드 보기", viewCodeAction)
                 ])
             }
             .frame(maxWidth: 780).frame(maxWidth: .infinity)
             .padding(.bottom, 30)
         }
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func open(_ address: String) {
-        if let url = URL(string: address) { openURL(url) }
     }
 
     private func projectGroup(_ title: String, rows: [(String, String, () -> Void)]) -> some View {

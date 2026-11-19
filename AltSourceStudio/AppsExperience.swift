@@ -12,7 +12,7 @@ struct ReorderRowFrames: PreferenceKey {
 struct ImmediateReorderHandle: View {
     let coordinateSpace: String
     let label: String
-    let onChange: (CGFloat, CGFloat) -> Void
+    let onChange: (CGFloat) -> Void
     let onEnd: (CGFloat) -> Void
 
     var body: some View {
@@ -23,7 +23,7 @@ struct ImmediateReorderHandle: View {
             .accessibilityLabel(label)
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateSpace))
-                    .onChanged { value in onChange(value.location.y, value.translation.height) }
+                    .onChanged { value in onChange(value.location.y) }
                     .onEnded { value in onEnd(value.location.y) }
             )
     }
@@ -38,11 +38,21 @@ extension View {
             }
         }
     }
-}
 
-func nearestReorderID(to y: CGFloat, in frames: [String: CGRect], prefix: String) -> String? {
-    frames.filter { $0.key.hasPrefix(prefix) }
-        .min { abs($0.value.midY - y) < abs($1.value.midY - y) }?.key
+    func pressToReorder(in coordinateSpace: String,
+                        onChange: @escaping (CGFloat) -> Void,
+                        onEnd: @escaping (CGFloat) -> Void) -> some View {
+        simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.3)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateSpace)))
+                .onChanged { phase in
+                    if case .second(true, let drag?) = phase { onChange(drag.location.y) }
+                }
+                .onEnded { phase in
+                    if case .second(true, let drag?) = phase { onEnd(drag.location.y) }
+                }
+        )
+    }
 }
 
 struct AppsScreen: View {
@@ -52,13 +62,13 @@ struct AppsScreen: View {
     @State private var openNewApp = false
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var dragFrames: [String: CGRect] = [:]
-    @State private var handleDragIndex: Int?
-    @State private var handleDragOffset: CGFloat = 0
-    @State private var handleTargetIndex: Int?
+    @State private var dragSlotIndices: [UUID: Int] = [:]
+    @State private var draggedAppID: UUID?
+    @State private var dragFingerY: CGFloat = 0
+    @State private var dragTouchOffset: CGFloat = 0
 
-    private var visibleIndices: [Int] {
-        store.source.apps.indices.filter { index in
-            let app = store.source.apps[index]
+    private var visibleApps: [AltApp] {
+        store.source.apps.filter { app in
             return search.isEmpty || app.name.localizedCaseInsensitiveContains(search)
                 || app.bundleIdentifier.localizedCaseInsensitiveContains(search)
         }
@@ -100,11 +110,12 @@ struct AppsScreen: View {
 
                 if store.source.apps.isEmpty {
                     ContentUnavailableView("앱이 없습니다", systemImage: "apps.iphone", description: Text("앱을 추가해 주세요."))
-                } else if visibleIndices.isEmpty {
+                } else if visibleApps.isEmpty {
                     ContentUnavailableView.search(text: search)
                 } else {
                     LazyVStack(spacing: 10) {
-                        ForEach(visibleIndices, id: \.self) { index in
+                        ForEach(visibleApps, id: \.editorID) { app in
+                            if let index = store.source.apps.firstIndex(where: { $0.editorID == app.editorID }) {
                             HStack(spacing: 7) {
                                 if editing {
                                     Button(role: .destructive) { removeApp(index) } label: {
@@ -113,32 +124,26 @@ struct AppsScreen: View {
                                     ImmediateReorderHandle(
                                         coordinateSpace: "appsReorder",
                                         label: "누른 채로 끌어 앱 순서 변경",
-                                        onChange: { y, offset in updateHandleDrag(index, y: y, offset: offset) },
-                                        onEnd: { y in endHandleDrag(index, y: y) }
+                                        onChange: { y in updateDrag(app.editorID, y: y) },
+                                        onEnd: { y in endDrag(app.editorID, y: y) }
                                     )
                                 }
                                 NavigationLink {
                                     AppEditor(app: $store.source.apps[index])
                                 } label: {
-                                    appCard(store.source.apps[index])
+                                    appCard(app)
                                 }
                                 .buttonStyle(.plain)
-                                .draggable("app:\(index)")
+                                .pressToReorder(in: "appsReorder",
+                                                onChange: { y in updateDrag(app.editorID, y: y) },
+                                                onEnd: { y in endDrag(app.editorID, y: y) })
                             }
                             .contentShape(Rectangle())
-                            .reorderFrame(id: "app:\(index)", in: "appsReorder")
-                            .offset(y: handleDragIndex == index ? handleDragOffset : 0)
-                            .zIndex(handleDragIndex == index ? 1 : 0)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(handleTargetIndex == index && handleDragIndex != index ? Color.blue : .clear, lineWidth: 2)
-                                    .allowsHitTesting(false)
-                            }
-                            .dropDestination(for: String.self) { items, _ in
-                                guard let payload = items.first,
-                                      payload.hasPrefix("app:"),
-                                      let sourceIndex = Int(payload.dropFirst(4)) else { return false }
-                                return moveApp(from: sourceIndex, to: index)
+                            .reorderFrame(id: "app:\(app.editorID.uuidString)", in: "appsReorder")
+                            .offset(y: dragOffset(for: app.editorID))
+                            .scaleEffect(draggedAppID == app.editorID ? 1.025 : 1)
+                            .shadow(color: .black.opacity(draggedAppID == app.editorID ? 0.22 : 0), radius: 12, y: 8)
+                            .zIndex(draggedAppID == app.editorID ? 1 : 0)
                             }
                         }
                     }
@@ -191,38 +196,49 @@ struct AppsScreen: View {
         store.source.featuredApps.removeAll { $0 == id }
     }
 
-    private func moveApp(from sourceIndex: Int, to targetIndex: Int) -> Bool {
+    private func moveApp(_ id: UUID, to targetIndex: Int) {
         var apps = store.source.apps
-        guard apps.indices.contains(sourceIndex),
+        guard let sourceIndex = apps.firstIndex(where: { $0.editorID == id }),
               apps.indices.contains(targetIndex),
-              sourceIndex != targetIndex else { return false }
+              sourceIndex != targetIndex else { return }
         let moved = apps.remove(at: sourceIndex)
         apps.insert(moved, at: targetIndex)
-        withAnimation(.easeInOut(duration: 0.2)) { store.source.apps = apps }
-        return true
+        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.85)) { store.source.apps = apps }
     }
 
-    private func updateHandleDrag(_ index: Int, y: CGFloat, offset: CGFloat) {
-        if handleDragIndex == nil {
+    private func updateDrag(_ id: UUID, y: CGFloat) {
+        let key = "app:\(id.uuidString)"
+        if draggedAppID == nil {
             dragFrames = rowFrames
-            handleDragIndex = index
+            guard let frame = dragFrames[key] else { return }
+            dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.apps.enumerated().map { ($0.element.editorID, $0.offset) })
+            dragTouchOffset = y - frame.midY
+            draggedAppID = id
         }
-        guard handleDragIndex == index else { return }
-        if dragFrames.isEmpty { dragFrames = rowFrames }
-        handleDragOffset = offset
-        if let target = nearestReorderID(to: y, in: dragFrames, prefix: "app:") {
-            handleTargetIndex = Int(target.dropFirst(4))
+        guard draggedAppID == id else { return }
+        dragFingerY = y
+        let center = y - dragTouchOffset
+        let slots = dragFrames.filter { $0.key.hasPrefix("app:") }.sorted { $0.value.midY < $1.value.midY }
+        guard let target = slots.enumerated().min(by: {
+            abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
+        })?.offset else { return }
+        let targetID = UUID(uuidString: String(slots[target].key.dropFirst(4)))
+        if let targetID, let slotIndex = dragSlotIndices[targetID] {
+            moveApp(id, to: slotIndex)
         }
     }
 
-    private func endHandleDrag(_ index: Int, y: CGFloat) {
-        let target = nearestReorderID(to: y, in: dragFrames, prefix: "app:")
-            .flatMap { Int($0.dropFirst(4)) } ?? handleTargetIndex
-        handleDragIndex = nil
-        handleDragOffset = 0
-        handleTargetIndex = nil
+    private func dragOffset(for id: UUID) -> CGFloat {
+        guard draggedAppID == id, let frame = rowFrames["app:\(id.uuidString)"] else { return 0 }
+        return dragFingerY - dragTouchOffset - frame.midY
+    }
+
+    private func endDrag(_ id: UUID, y: CGFloat) {
+        updateDrag(id, y: y)
+        guard draggedAppID == id else { return }
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { draggedAppID = nil }
         dragFrames = [:]
-        if let target { _ = moveApp(from: index, to: target) }
+        dragSlotIndices = [:]
     }
 }
 

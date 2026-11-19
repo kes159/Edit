@@ -346,9 +346,10 @@ struct SourceEditor: View {
     @State private var searchText = ""
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var dragFrames: [String: CGRect] = [:]
+    @State private var dragSlotIndices: [String: Int] = [:]
     @State private var handleDragID: String?
-    @State private var handleDragOffset: CGFloat = 0
-    @State private var handleTargetID: String?
+    @State private var dragFingerY: CGFloat = 0
+    @State private var dragTouchOffset: CGFloat = 0
 
     private var visibleApps: [AltApp] {
         let apps = store.source.apps.filter { app in
@@ -438,7 +439,7 @@ struct SourceEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
             } else {
-                ForEach(Array(visibleApps.enumerated()), id: \.offset) { _, app in
+                ForEach(visibleApps, id: \.editorID) { app in
                     featuredRow(app)
                 }
             }
@@ -453,17 +454,10 @@ struct SourceEditor: View {
             featuredRowContent(app, selected: true)
                 .contentShape(Rectangle())
                 .reorderFrame(id: "featured:\(app.bundleIdentifier)", in: "featuredReorder")
-                .offset(y: handleDragID == app.bundleIdentifier ? handleDragOffset : 0)
+                .offset(y: featuredDragOffset(for: app.bundleIdentifier))
+                .scaleEffect(handleDragID == app.bundleIdentifier ? 1.025 : 1)
+                .shadow(color: .black.opacity(handleDragID == app.bundleIdentifier ? 0.2 : 0), radius: 10, y: 6)
                 .zIndex(handleDragID == app.bundleIdentifier ? 1 : 0)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(handleTargetID == app.bundleIdentifier && handleDragID != app.bundleIdentifier ? Color.blue : .clear, lineWidth: 2)
-                        .allowsHitTesting(false)
-                }
-                .dropDestination(for: String.self) { items, _ in
-                    guard let payload = items.first, payload.hasPrefix("featured:") else { return false }
-                    return moveFeatured(from: String(payload.dropFirst(9)), to: app.bundleIdentifier)
-                }
         } else {
             featuredRowContent(app, selected: false)
         }
@@ -475,8 +469,8 @@ struct SourceEditor: View {
                 ImmediateReorderHandle(
                     coordinateSpace: "featuredReorder",
                     label: "누른 채로 끌어 대표 앱 순서 변경",
-                    onChange: { y, offset in updateFeaturedHandleDrag(app.bundleIdentifier, y: y, offset: offset) },
-                    onEnd: { y in endFeaturedHandleDrag(app.bundleIdentifier, y: y) }
+                    onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y) },
+                    onEnd: { y in endFeaturedDrag(app.bundleIdentifier, y: y) }
                 )
             } else {
                 Image(systemName: "line.3.horizontal")
@@ -487,7 +481,9 @@ struct SourceEditor: View {
             if selected {
                 featuredAppDetails(app, selected: true)
                     .contentShape(Rectangle())
-                    .draggable("featured:\(app.bundleIdentifier)")
+                    .pressToReorder(in: "featuredReorder",
+                                    onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y) },
+                                    onEnd: { y in endFeaturedDrag(app.bundleIdentifier, y: y) })
             } else {
                 featuredAppDetails(app, selected: false)
             }
@@ -528,38 +524,47 @@ struct SourceEditor: View {
         }
     }
 
-    private func moveFeatured(from sourceID: String, to targetID: String) -> Bool {
+    private func moveFeatured(_ sourceID: String, to targetIndex: Int) {
         var order = store.source.featuredApps
         guard let sourceIndex = order.firstIndex(of: sourceID),
-              let targetIndex = order.firstIndex(of: targetID),
-              sourceIndex != targetIndex else { return false }
+              order.indices.contains(targetIndex),
+              sourceIndex != targetIndex else { return }
         order.remove(at: sourceIndex)
         order.insert(sourceID, at: targetIndex)
-        withAnimation(.easeInOut(duration: 0.2)) { store.source.featuredApps = order }
-        return true
+        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.85)) { store.source.featuredApps = order }
     }
 
-    private func updateFeaturedHandleDrag(_ id: String, y: CGFloat, offset: CGFloat) {
+    private func updateFeaturedDrag(_ id: String, y: CGFloat) {
         if handleDragID == nil {
             dragFrames = rowFrames
+            guard let frame = dragFrames["featured:\(id)"] else { return }
+            dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.featuredApps.enumerated().map { ($0.element, $0.offset) })
+            dragTouchOffset = y - frame.midY
             handleDragID = id
         }
         guard handleDragID == id else { return }
-        if dragFrames.isEmpty { dragFrames = rowFrames }
-        handleDragOffset = offset
-        if let target = nearestReorderID(to: y, in: dragFrames, prefix: "featured:") {
-            handleTargetID = String(target.dropFirst(9))
+        dragFingerY = y
+        let center = y - dragTouchOffset
+        let slots = dragFrames.filter { $0.key.hasPrefix("featured:") }.sorted { $0.value.midY < $1.value.midY }
+        if let target = slots.enumerated().min(by: {
+            abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
+        })?.offset,
+           let slotIndex = dragSlotIndices[String(slots[target].key.dropFirst(9))] {
+            moveFeatured(id, to: slotIndex)
         }
     }
 
-    private func endFeaturedHandleDrag(_ id: String, y: CGFloat) {
-        let target = nearestReorderID(to: y, in: dragFrames, prefix: "featured:")
-            .map { String($0.dropFirst(9)) } ?? handleTargetID
-        handleDragID = nil
-        handleDragOffset = 0
-        handleTargetID = nil
+    private func featuredDragOffset(for id: String) -> CGFloat {
+        guard handleDragID == id, let frame = rowFrames["featured:\(id)"] else { return 0 }
+        return dragFingerY - dragTouchOffset - frame.midY
+    }
+
+    private func endFeaturedDrag(_ id: String, y: CGFloat) {
+        updateFeaturedDrag(id, y: y)
+        guard handleDragID == id else { return }
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { handleDragID = nil }
         dragFrames = [:]
-        if let target { _ = moveFeatured(from: id, to: target) }
+        dragSlotIndices = [:]
     }
 }
 

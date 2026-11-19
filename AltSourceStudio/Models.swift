@@ -53,6 +53,8 @@ struct AltSource: Codable {
 }
 
 struct AltApp: Codable {
+    // Stable identity for animated row moves; intentionally omitted from source JSON.
+    var editorID = UUID()
     var name = ""
     var bundleIdentifier = ""
     var marketplaceID = ""
