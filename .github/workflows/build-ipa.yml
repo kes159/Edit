@@ -21,12 +21,12 @@ jobs:
       - name: Build IPA
         run: ./scripts/build-ipa.sh
 
-      - name: Stamp IPA for artifact upload
+      - name: Prepare IPA artifact
         run: ./scripts/prepare-artifact.sh
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: Source-Editor
           path: build/artifacts/Source_Editor.ipa
           if-no-files-found: error
+          archive: false
