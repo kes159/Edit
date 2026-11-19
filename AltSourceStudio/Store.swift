@@ -1,0 +1,88 @@
+import Foundation
+import SwiftUI
+import UniformTypeIdentifiers
+
+final class SourceStore: ObservableObject {
+    @Published var source: AltSource {
+        didSet { save() }
+    }
+    @Published var message: String?
+
+    init() {
+        if let data = UserDefaults.standard.data(forKey: "altSourceDraft"),
+           let loaded = try? JSONDecoder().decode(AltSource.self, from: data) {
+            source = loaded
+        } else {
+            source = AltSource()
+        }
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(source) {
+            UserDefaults.standard.set(data, forKey: "altSourceDraft")
+        }
+    }
+
+    func jsonData() -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(source)) ?? Data("{}".utf8)
+    }
+
+    var jsonText: String { String(data: jsonData(), encoding: .utf8) ?? "{}" }
+
+    func importJSON(_ url: URL) {
+        let granted = url.startAccessingSecurityScopedResource()
+        defer { if granted { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            let imported = try JSONDecoder().decode(AltSource.self, from: data)
+            source = imported
+            message = "JSON을 가져왔습니다."
+        } catch {
+            message = "JSON을 읽지 못했습니다: \(error.localizedDescription)"
+        }
+    }
+
+    var issues: [String] {
+        var result: [String] = []
+        if source.name.trimmed.isEmpty { result.append("소스 이름을 입력하세요.") }
+        let bundleIDs = source.apps.map(\.bundleIdentifier).filter { !$0.trimmed.isEmpty }
+        if Set(bundleIDs).count != bundleIDs.count { result.append("앱의 Bundle ID가 중복됩니다.") }
+        for (index, app) in source.apps.enumerated() {
+            let label = "앱 \(index + 1)"
+            if app.name.trimmed.isEmpty { result.append("\(label): 이름이 없습니다.") }
+            if app.bundleIdentifier.trimmed.isEmpty { result.append("\(label): Bundle ID가 없습니다.") }
+            if app.developerName.trimmed.isEmpty { result.append("\(label): 개발자 이름이 없습니다.") }
+            if app.iconURL.trimmed.isEmpty { result.append("\(label): 아이콘 URL이 없습니다.") }
+            if app.versions.isEmpty { result.append("\(label): 버전이 없습니다.") }
+            for (vIndex, version) in app.versions.enumerated() {
+                let vLabel = "\(label) 버전 \(vIndex + 1)"
+                if version.version.trimmed.isEmpty { result.append("\(vLabel): 버전 번호가 없습니다.") }
+                if version.downloadURL.trimmed.isEmpty { result.append("\(vLabel): 다운로드 URL이 없습니다.") }
+                if version.size <= 0 { result.append("\(vLabel): 파일 크기를 바이트 단위로 입력하세요.") }
+            }
+            for screenshot in app.screenshots.ipad where Int(screenshot.width) == nil || Int(screenshot.height) == nil {
+                result.append("\(label): iPad 스크린샷에는 너비와 높이가 필요합니다.")
+            }
+        }
+        let newsIDs = source.news.map(\.identifier).filter { !$0.trimmed.isEmpty }
+        if Set(newsIDs).count != newsIDs.count { result.append("뉴스 식별자가 중복됩니다.") }
+        for (index, item) in source.news.enumerated() {
+            if item.title.trimmed.isEmpty || item.identifier.trimmed.isEmpty || item.caption.trimmed.isEmpty {
+                result.append("뉴스 \(index + 1): 제목, 식별자, 요약이 필요합니다.")
+            }
+        }
+        return result
+    }
+}
+
+private extension String { var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) } }
+
+struct JSONFile: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
+}
