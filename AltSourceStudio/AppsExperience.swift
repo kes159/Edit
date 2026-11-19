@@ -43,7 +43,7 @@ extension View {
                         onChange: @escaping (CGFloat) -> Void,
                         onEnd: @escaping (CGFloat) -> Void) -> some View {
         simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.5, maximumDistance: 8)
+            LongPressGesture(minimumDuration: 0.35, maximumDistance: 8)
                 .sequenced(before: DragGesture(minimumDistance: 4, coordinateSpace: .named(coordinateSpace)))
                 .onChanged { phase in
                     if case .second(true, let drag?) = phase { onChange(drag.location.y) }
