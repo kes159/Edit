@@ -36,7 +36,7 @@
 - 배포 대상: iOS 17 이상.
 - 제공된 IPA는 코드 서명 및 프로비저닝이 없는 빌드입니다. AltStore 등에서 기기용으로 서명해 설치하거나 Xcode에서 자신의 개발 팀을 선택해 다시 빌드하세요.
 - 터미널에서는 `./scripts/build-ipa.sh`로 서명되지 않은 IPA를 `build/AltSourceStudio.ipa`에 만들 수 있습니다.
-- GitHub의 **Actions → Build AltStudio.app IPA**에서 `main`에 푸시하거나 수동 실행하면 IPA를 실행 아티팩트로 받을 수 있습니다. 다운로드 ZIP과 내부 IPA 이름에는 업로드 직전 한국 시간(`YYYYMMDD-HHMMSS-KST`)이 붙습니다. 압축 해제한 IPA의 수정 시각도 이 시각으로 표시됩니다. ZIP 자체의 Finder 생성일은 다운로드 시각이므로 다운로드 시점에 따라 다를 수 있습니다.
+- GitHub의 **Actions → Build AltStudio.app IPA**에서 `main`에 푸시하거나 수동 실행하면 `Source-Editor.zip` 아티팩트를 받을 수 있습니다. 압축 파일 안에는 `Source_Editor.ipa`가 있습니다. 업로드 직전 한국 시각을 IPA의 압축 내부 날짜로 기록하므로 macOS에서 압축 해제하면 생성일과 수정일이 아티팩트 생성 시점에 가깝게 표시됩니다. 정확한 업로드 완료 시각은 업로드 전에 알 수 없고, 다운로드한 ZIP 자체의 Finder 생성일은 다운로드 시각입니다.
 
 ## 범위
 

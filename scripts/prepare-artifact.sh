@@ -13,8 +13,7 @@ fi
 # This is the last preparation step before artifact upload. The upload itself
 # takes additional seconds, so its exact completion time cannot be known yet.
 stamp_kst="$(TZ=Asia/Seoul date '+%Y%m%d-%H%M%S')"
-artifact_name="AltSourceStudio-unsigned-${stamp_kst}-KST"
-artifact_ipa="${artifact_dir}/${artifact_name}.ipa"
+artifact_ipa="${artifact_dir}/Source_Editor.ipa"
 mkdir -p "${artifact_dir}"
 cp "${source_ipa}" "${artifact_ipa}"
 
@@ -32,9 +31,3 @@ if [[ "${encoded_time}" != "${stamp_kst}" ]]; then
 fi
 
 echo "Prepared ${artifact_ipa} (${stamp_kst} KST)"
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  {
-    printf 'artifact_name=%s\n' "${artifact_name}"
-    printf 'ipa_path=%s\n' "${artifact_ipa}"
-  } >> "${GITHUB_OUTPUT}"
-fi

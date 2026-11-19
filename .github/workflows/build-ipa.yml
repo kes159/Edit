@@ -22,12 +22,11 @@ jobs:
         run: ./scripts/build-ipa.sh
 
       - name: Stamp IPA for artifact upload
-        id: package
         run: ./scripts/prepare-artifact.sh
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.artifact_name }}
-          path: ${{ steps.package.outputs.ipa_path }}
+          name: Source-Editor
+          path: build/artifacts/Source_Editor.ipa
           if-no-files-found: error
