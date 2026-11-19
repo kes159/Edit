@@ -1,11 +1,60 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct ReorderRowFrames: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+struct ImmediateReorderHandle: View {
+    let coordinateSpace: String
+    let label: String
+    let onChange: (CGFloat, CGFloat) -> Void
+    let onEnd: (CGFloat) -> Void
+
+    var body: some View {
+        Image(systemName: "line.3.horizontal")
+            .foregroundStyle(.blue)
+            .frame(width: 24, height: 44)
+            .contentShape(Rectangle())
+            .accessibilityLabel(label)
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateSpace))
+                    .onChanged { value in onChange(value.location.y, value.translation.height) }
+                    .onEnded { value in onEnd(value.location.y) }
+            )
+    }
+}
+
+extension View {
+    func reorderFrame(id: String, in coordinateSpace: String) -> some View {
+        background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: ReorderRowFrames.self,
+                                       value: [id: geometry.frame(in: .named(coordinateSpace))])
+            }
+        }
+    }
+}
+
+func nearestReorderID(to y: CGFloat, in frames: [String: CGRect], prefix: String) -> String? {
+    frames.filter { $0.key.hasPrefix(prefix) }
+        .min { abs($0.value.midY - y) < abs($1.value.midY - y) }?.key
+}
+
 struct AppsScreen: View {
     @EnvironmentObject private var store: SourceStore
     @State private var search = ""
     @State private var editing = false
     @State private var openNewApp = false
+    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var dragFrames: [String: CGRect] = [:]
+    @State private var handleDragIndex: Int?
+    @State private var handleDragOffset: CGFloat = 0
+    @State private var handleTargetIndex: Int?
 
     private var visibleIndices: [Int] {
         store.source.apps.indices.filter { index in
@@ -61,10 +110,12 @@ struct AppsScreen: View {
                                     Button(role: .destructive) { removeApp(index) } label: {
                                         Image(systemName: "minus.circle.fill")
                                     }
-                                    Image(systemName: "line.3.horizontal")
-                                        .foregroundStyle(.blue)
-                                        .frame(width: 24, height: 44)
-                                        .accessibilityLabel("길게 눌러 앱 순서 변경")
+                                    ImmediateReorderHandle(
+                                        coordinateSpace: "appsReorder",
+                                        label: "누른 채로 끌어 앱 순서 변경",
+                                        onChange: { y, offset in updateHandleDrag(index, y: y, offset: offset) },
+                                        onEnd: { y in endHandleDrag(index, y: y) }
+                                    )
                                 }
                                 NavigationLink {
                                     AppEditor(app: $store.source.apps[index])
@@ -72,9 +123,17 @@ struct AppsScreen: View {
                                     appCard(store.source.apps[index])
                                 }
                                 .buttonStyle(.plain)
+                                .draggable("app:\(index)")
                             }
                             .contentShape(Rectangle())
-                            .draggable("app:\(index)")
+                            .reorderFrame(id: "app:\(index)", in: "appsReorder")
+                            .offset(y: handleDragIndex == index ? handleDragOffset : 0)
+                            .zIndex(handleDragIndex == index ? 1 : 0)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(handleTargetIndex == index && handleDragIndex != index ? Color.blue : .clear, lineWidth: 2)
+                                    .allowsHitTesting(false)
+                            }
                             .dropDestination(for: String.self) { items, _ in
                                 guard let payload = items.first,
                                       payload.hasPrefix("app:"),
@@ -91,6 +150,8 @@ struct AppsScreen: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color(uiColor: .systemBackground))
+        .coordinateSpace(name: "appsReorder")
+        .onPreferenceChange(ReorderRowFrames.self) { rowFrames = $0 }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $openNewApp) {
             if let index = store.source.apps.indices.last {
@@ -139,6 +200,29 @@ struct AppsScreen: View {
         apps.insert(moved, at: targetIndex)
         withAnimation(.easeInOut(duration: 0.2)) { store.source.apps = apps }
         return true
+    }
+
+    private func updateHandleDrag(_ index: Int, y: CGFloat, offset: CGFloat) {
+        if handleDragIndex == nil {
+            dragFrames = rowFrames
+            handleDragIndex = index
+        }
+        guard handleDragIndex == index else { return }
+        if dragFrames.isEmpty { dragFrames = rowFrames }
+        handleDragOffset = offset
+        if let target = nearestReorderID(to: y, in: dragFrames, prefix: "app:") {
+            handleTargetIndex = Int(target.dropFirst(4))
+        }
+    }
+
+    private func endHandleDrag(_ index: Int, y: CGFloat) {
+        let target = nearestReorderID(to: y, in: dragFrames, prefix: "app:")
+            .flatMap { Int($0.dropFirst(4)) } ?? handleTargetIndex
+        handleDragIndex = nil
+        handleDragOffset = 0
+        handleTargetIndex = nil
+        dragFrames = [:]
+        if let target { _ = moveApp(from: index, to: target) }
     }
 }
 

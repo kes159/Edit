@@ -322,6 +322,11 @@ struct SourceEditor: View {
     let viewCodeAction: () -> Void
     let addAppAction: () -> Void
     @State private var searchText = ""
+    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var dragFrames: [String: CGRect] = [:]
+    @State private var handleDragID: String?
+    @State private var handleDragOffset: CGFloat = 0
+    @State private var handleTargetID: String?
 
     private var visibleApps: [AltApp] {
         let apps = store.source.apps.filter { app in
@@ -382,6 +387,8 @@ struct SourceEditor: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color(uiColor: .systemBackground))
+        .coordinateSpace(name: "featuredReorder")
+        .onPreferenceChange(ReorderRowFrames.self) { rowFrames = $0 }
         .toolbar(.hidden, for: .navigationBar)
         .keyboardDismissButton()
     }
@@ -423,7 +430,14 @@ struct SourceEditor: View {
         if selected {
             featuredRowContent(app, selected: true)
                 .contentShape(Rectangle())
-                .draggable("featured:\(app.bundleIdentifier)")
+                .reorderFrame(id: "featured:\(app.bundleIdentifier)", in: "featuredReorder")
+                .offset(y: handleDragID == app.bundleIdentifier ? handleDragOffset : 0)
+                .zIndex(handleDragID == app.bundleIdentifier ? 1 : 0)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(handleTargetID == app.bundleIdentifier && handleDragID != app.bundleIdentifier ? Color.blue : .clear, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
                 .dropDestination(for: String.self) { items, _ in
                     guard let payload = items.first, payload.hasPrefix("featured:") else { return false }
                     return moveFeatured(from: String(payload.dropFirst(9)), to: app.bundleIdentifier)
@@ -435,10 +449,33 @@ struct SourceEditor: View {
 
     private func featuredRowContent(_ app: AltApp, selected: Bool) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(selected ? .blue : .gray)
-                .frame(width: 24, height: 44)
-                .accessibilityLabel(selected ? "길게 눌러 대표 앱 순서 변경" : "대표 앱을 선택하면 순서를 바꿀 수 있습니다")
+            if selected {
+                ImmediateReorderHandle(
+                    coordinateSpace: "featuredReorder",
+                    label: "누른 채로 끌어 대표 앱 순서 변경",
+                    onChange: { y, offset in updateFeaturedHandleDrag(app.bundleIdentifier, y: y, offset: offset) },
+                    onEnd: { y in endFeaturedHandleDrag(app.bundleIdentifier, y: y) }
+                )
+            } else {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.gray)
+                    .frame(width: 24, height: 44)
+                    .accessibilityLabel("대표 앱을 선택하면 순서를 바꿀 수 있습니다")
+            }
+            if selected {
+                featuredAppDetails(app, selected: true)
+                    .contentShape(Rectangle())
+                    .draggable("featured:\(app.bundleIdentifier)")
+            } else {
+                featuredAppDetails(app, selected: false)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func featuredAppDetails(_ app: AltApp, selected: Bool) -> some View {
+        HStack(spacing: 12) {
             RemoteImage(url: app.iconURL, systemName: "app")
                 .frame(width: 38, height: 38)
                 .clipShape(RoundedRectangle(cornerRadius: 9))
@@ -454,8 +491,6 @@ struct SourceEditor: View {
             }
             .accessibilityLabel(selected ? "추천 앱에서 제거" : "추천 앱으로 선택")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     private func toggleFeatured(_ id: String) {
@@ -480,6 +515,29 @@ struct SourceEditor: View {
         order.insert(sourceID, at: targetIndex)
         withAnimation(.easeInOut(duration: 0.2)) { store.source.featuredApps = order }
         return true
+    }
+
+    private func updateFeaturedHandleDrag(_ id: String, y: CGFloat, offset: CGFloat) {
+        if handleDragID == nil {
+            dragFrames = rowFrames
+            handleDragID = id
+        }
+        guard handleDragID == id else { return }
+        if dragFrames.isEmpty { dragFrames = rowFrames }
+        handleDragOffset = offset
+        if let target = nearestReorderID(to: y, in: dragFrames, prefix: "featured:") {
+            handleTargetID = String(target.dropFirst(9))
+        }
+    }
+
+    private func endFeaturedHandleDrag(_ id: String, y: CGFloat) {
+        let target = nearestReorderID(to: y, in: dragFrames, prefix: "featured:")
+            .map { String($0.dropFirst(9)) } ?? handleTargetID
+        handleDragID = nil
+        handleDragOffset = 0
+        handleTargetID = nil
+        dragFrames = [:]
+        if let target { _ = moveFeatured(from: id, to: target) }
     }
 }
 
