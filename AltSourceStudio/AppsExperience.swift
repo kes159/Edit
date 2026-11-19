@@ -77,17 +77,17 @@ struct AppsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Apps").font(.system(size: 34, weight: .bold)).padding(.top, 14)
+                Text("앱").font(.system(size: 34, weight: .bold)).padding(.top, 14)
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search", text: $search)
+                    TextField("검색", text: $search)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
                 .padding(12)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
                 Divider()
                 HStack {
-                    Text("Total \(store.source.apps.count)").font(.headline)
+                    Text("전체 \(store.source.apps.count)개").font(.headline)
                     Spacer()
                     Button {
                         store.source.apps.append(AltApp())
@@ -180,7 +180,7 @@ struct AppsScreen: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
-            Text("EDIT")
+            Text("편집")
                 .font(.caption.weight(.bold)).foregroundStyle(.white)
                 .padding(.horizontal, 10).padding(.vertical, 7)
                 .background(tint, in: Capsule())
@@ -263,6 +263,20 @@ struct AppEditor: View {
     @State private var newEntitlement = ""
     private let categories = ["developer", "entertainment", "games", "lifestyle", "other", "photo-video", "social", "utilities"]
 
+    private func categoryLabel(_ value: String) -> String {
+        switch value {
+        case "developer": "개발자 도구"
+        case "entertainment": "엔터테인먼트"
+        case "games": "게임"
+        case "lifestyle": "라이프스타일"
+        case "other": "기타"
+        case "photo-video": "사진 및 비디오"
+        case "social": "소셜 네트워킹"
+        case "utilities": "유틸리티"
+        default: value
+        }
+    }
+
     private var matchingVersions: [Int] {
         app.versions.indices.filter { index in
             versionSearch.isEmpty || app.versions[index].version.localizedCaseInsensitiveContains(versionSearch)
@@ -273,25 +287,25 @@ struct AppEditor: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                SourceImageField(title: "Icon", url: $app.iconURL, isHeader: false)
-                AppInputField(title: "Name", text: $app.name)
-                AppInputField(title: "Bundle identifier", text: $app.bundleIdentifier, identifier: true)
-                AppInputField(title: "Marketplace ID (optional)", text: $app.marketplaceID)
-                Text("Marketplace ID는 현재 JSON 내보내기 형식에서 제외됩니다.")
+                SourceImageField(title: "아이콘", url: $app.iconURL, isHeader: false)
+                AppInputField(title: "앱 이름", text: $app.name)
+                AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
+                AppInputField(title: "마켓플레이스 ID (선택 사항)", text: $app.marketplaceID)
+                Text("마켓플레이스 ID는 현재 JSON 내보내기 형식에서 제외됩니다.")
                     .font(.caption).foregroundStyle(.secondary).padding(.top, -18)
-                SourceTextField(title: "Tint color", text: $app.tintColor) {
-                    ColorPicker("Tint color", selection: Binding(
+                SourceTextField(title: "틴트 컬러", text: $app.tintColor) {
+                    ColorPicker("틴트 컬러", selection: Binding(
                         get: { sourceTintColor(app.tintColor) },
                         set: { app.tintColor = sourceHexColor($0) }
                     ), supportsOpacity: false).labelsHidden()
                 }
-                AppInputField(title: "Developer name", text: $app.developerName)
-                AppInputField(title: "Subtitle (optional)", text: $app.subtitle)
-                AppInputField(title: "Description (optional)", text: $app.localizedDescription, multiline: true)
+                AppInputField(title: "개발자 이름", text: $app.developerName)
+                AppInputField(title: "앱 부제목 (선택 사항)", text: $app.subtitle)
+                AppInputField(title: "앱 설명 (선택 사항)", text: $app.localizedDescription, multiline: true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Category (optional)").font(.subheadline)
-                    Picker("Category", selection: $app.category) {
-                        ForEach(categories, id: \.self) { Text($0).tag($0) }
+                    Text("카테고리 (선택 사항)").font(.subheadline)
+                    Picker("카테고리", selection: $app.category) {
+                        ForEach(categories, id: \.self) { Text(categoryLabel($0)).tag($0) }
                     }
                     .labelsHidden()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -312,7 +326,7 @@ struct AppEditor: View {
         }
         .background(Color(uiColor: .systemBackground))
         .toolbar(.visible, for: .navigationBar)
-        .navigationTitle("App editor")
+        .navigationTitle("앱 편집")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .top, spacing: 0) { editorToolbar }
         .sheet(item: $sheet) { selected in
@@ -348,12 +362,13 @@ struct AppEditor: View {
             }
             .accessibilityLabel("대표 앱 선택")
             Spacer()
-            Button { scanningFile = true } label: { Label("Scan IPA / ADP", systemImage: "doc") }
+            Button { scanningFile = true } label: { Label("IPA/ADP 파일 선택", systemImage: "doc") }
                 .font(.subheadline)
             Menu {
                 Button("앱 복제", systemImage: "plus.square.on.square") {
                     var copy = app
-                    copy.name += " copy"
+                    copy.editorID = UUID()
+                    copy.name += " 복사본"
                     copy.bundleIdentifier = ""
                     store.source.apps.append(copy)
                 }
@@ -367,7 +382,7 @@ struct AppEditor: View {
 
     private var screenshotsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Screenshots").font(.subheadline)
+            Text("스크린샷").font(.subheadline)
             VStack(spacing: 0) {
                 screenshotRow("iPhone", count: app.screenshots.iphone.count)
                 screenshotRow("iPad", count: app.screenshots.ipad.count)
@@ -396,24 +411,24 @@ struct AppEditor: View {
     private var versionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Versions").font(.subheadline)
+                Text("버전").font(.subheadline)
                 Spacer()
                 Menu {
-                    Button("Add manually", systemImage: "pencil") {
+                    Button("직접 추가", systemImage: "pencil") {
                         versionDraft = AltVersion()
                         selectedFileName = nil
                         sheet = .addVersion
                     }
-                    Button("Scan IPA / ADP file", systemImage: "doc") { scanningFile = true }
-                } label: { Label("Add", systemImage: "plus") }
+                    Button("IPA/ADP 파일 선택", systemImage: "doc") { scanningFile = true }
+                } label: { Label("추가", systemImage: "plus") }
                 Button { editingVersions.toggle() } label: {
-                    Label(editingVersions ? "Done" : "Edit", systemImage: "square.and.pencil")
+                    Label(editingVersions ? "완료" : "편집", systemImage: "square.and.pencil")
                 }
             }
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search", text: $versionSearch).textInputAutocapitalization(.never)
+                    TextField("검색", text: $versionSearch).textInputAutocapitalization(.never)
                 }
                 .padding(11)
                 .background(.white, in: RoundedRectangle(cornerRadius: 11))
@@ -431,7 +446,7 @@ struct AppEditor: View {
                         Button {
                             showAllVersions.toggle()
                         } label: {
-                            Text(showAllVersions ? "Show less" : "Show all")
+                            Text(showAllVersions ? "접기" : "모두 보기")
                             Text("\(matchingVersions.count)")
                                 .font(.caption.weight(.bold)).foregroundStyle(.white)
                                 .padding(5)
@@ -483,20 +498,20 @@ struct AppEditor: View {
         let entries = app.appPermissions.privacy.keys.sorted()
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Privacy").font(.subheadline)
+                Text("개인정보 사용 설명").font(.subheadline)
                 Spacer()
                 Button {
                     newPrivacyKey = ""
                     newPrivacyValue = ""
                     sheet = .addPrivacy
-                } label: { Label("Add", systemImage: "plus") }
+                } label: { Label("추가", systemImage: "plus") }
                 NavigationLink { PermissionsEditor(permissions: $app.appPermissions) } label: {
-                    Label("Edit", systemImage: "square.and.pencil")
+                    Label("편집", systemImage: "square.and.pencil")
                 }
             }
             VStack(spacing: 0) {
                 if entries.isEmpty {
-                    Text("No app privacy items")
+                    Text("등록된 개인정보 사용 설명이 없습니다.")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(14)
                 } else {
@@ -510,7 +525,7 @@ struct AppEditor: View {
                         if key != entries.last { Divider().padding(.leading, 14) }
                     }
                     if entries.count > 4 {
-                        Button(showAllPrivacy ? "Show less" : "Show all \(entries.count)") {
+                        Button(showAllPrivacy ? "접기" : "모두 보기 \(entries.count)개") {
                             showAllPrivacy.toggle()
                         }
                         .foregroundStyle(sourceTintColor(app.tintColor)).padding(14)
@@ -524,16 +539,16 @@ struct AppEditor: View {
     private var entitlementsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Entitlements").font(.subheadline)
+                Text("앱 권한 설정").font(.subheadline)
                 Spacer()
-                Button { newEntitlement = ""; sheet = .addEntitlement } label: { Label("Add", systemImage: "plus") }
+                Button { newEntitlement = ""; sheet = .addEntitlement } label: { Label("추가", systemImage: "plus") }
                 NavigationLink { PermissionsEditor(permissions: $app.appPermissions) } label: {
-                    Label("Edit", systemImage: "square.and.pencil")
+                    Label("편집", systemImage: "square.and.pencil")
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
                 if app.appPermissions.entitlements.isEmpty {
-                    Text("No app entitlements items").foregroundStyle(.secondary)
+                    Text("등록된 앱 권한이 없습니다.").foregroundStyle(.secondary)
                 } else {
                     ForEach(app.appPermissions.entitlements, id: \.self) { item in
                         Text(item).font(.subheadline)
@@ -552,7 +567,7 @@ struct AppEditor: View {
                 TextField("권한 키", text: $newPrivacyKey).textInputAutocapitalization(.never)
                 TextField("설명", text: $newPrivacyValue, axis: .vertical)
             }
-            .navigationTitle("Privacy 추가")
+            .navigationTitle("개인정보 사용 설명 추가")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("취소") { sheet = nil } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -569,8 +584,8 @@ struct AppEditor: View {
 
     private var addEntitlementSheet: some View {
         NavigationStack {
-            Form { TextField("Entitlement", text: $newEntitlement).textInputAutocapitalization(.never) }
-                .navigationTitle("Entitlement 추가")
+            Form { TextField("앱 권한 항목", text: $newEntitlement).textInputAutocapitalization(.never) }
+                .navigationTitle("앱 권한 추가")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("취소") { sheet = nil } }
                     ToolbarItem(placement: .confirmationAction) {
@@ -683,11 +698,11 @@ private struct AddVersionSheet: View {
                         Text("\(fileName)의 크기를 입력했습니다. 배포용 다운로드 URL과 버전 정보는 직접 입력해 주세요.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
-                    AppInputField(title: "IPA / ADP download URL *", text: $version.downloadURL,
+                    AppInputField(title: "IPA/ADP 다운로드 URL *", text: $version.downloadURL,
                                   placeholder: "https://site.com/someapp.ipa", identifier: true)
                     HStack(alignment: .bottom, spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("IPA file size *").font(.subheadline)
+                            Text("파일 크기 *").font(.subheadline)
                             TextField("0.0", text: $sizeText)
                                 .keyboardType(.decimalPad)
                                 .padding(.horizontal, 12)
@@ -695,9 +710,9 @@ private struct AddVersionSheet: View {
                                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                         }
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Unit").font(.subheadline)
-                            Picker("Unit", selection: $sizeUnit) {
-                                ForEach(units, id: \.self) { Text($0).tag($0) }
+                            Text("단위").font(.subheadline)
+                            Picker("단위", selection: $sizeUnit) {
+                                ForEach(units, id: \.self) { Text($0 == "bytes" ? "바이트" : $0).tag($0) }
                             }
                             .labelsHidden()
                             .padding(.horizontal, 8)
@@ -705,28 +720,28 @@ private struct AddVersionSheet: View {
                             .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                         }
                     }
-                    AppInputField(title: "Version number *", text: $version.version, placeholder: "1.0.0")
-                    AppInputField(title: "Build version (optional)", text: $version.buildVersion, placeholder: "123")
-                    Text("Build version은 현재 JSON 내보내기 형식에서 제외됩니다.")
+                    AppInputField(title: "버전 번호 *", text: $version.version, placeholder: "1.0.0")
+                    AppInputField(title: "빌드 버전 (선택 사항)", text: $version.buildVersion, placeholder: "123")
+                    Text("빌드 버전은 현재 JSON 내보내기 형식에서 제외됩니다.")
                         .font(.caption).foregroundStyle(.secondary).padding(.top, -18)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Release date *").font(.subheadline)
-                        DatePicker("Release date", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
+                        Text("출시일 *").font(.subheadline)
+                        DatePicker("출시일", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
                             .labelsHidden()
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 12)
                             .frame(height: 42)
                             .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                     }
-                    AppInputField(title: "Short description (optional)", text: $version.localizedDescription,
-                                  placeholder: "Some changes", multiline: true)
-                    AppInputField(title: "Min iOS (optional)", text: $version.minOSVersion, placeholder: "16.1")
+                    AppInputField(title: "변경 사항 (선택 사항)", text: $version.localizedDescription,
+                                  placeholder: "변경 사항을 입력하세요", multiline: true)
+                    AppInputField(title: "최소 iOS 버전 (선택 사항)", text: $version.minOSVersion, placeholder: "16.1")
                 }
                 .frame(maxWidth: 760)
                 .padding(16)
                 .frame(maxWidth: .infinity)
             }
-            .navigationTitle("Add App Version")
+            .navigationTitle("앱 버전 추가")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -735,7 +750,7 @@ private struct AddVersionSheet: View {
             }
             .safeAreaInset(edge: .bottom) {
                 Button(action: addAction) {
-                    Text("Add").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 11)
+                    Text("추가").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 11)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!canAdd)

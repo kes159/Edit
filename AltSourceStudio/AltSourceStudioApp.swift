@@ -365,7 +365,7 @@ struct SourceEditor: View {
             VStack(alignment: .leading, spacing: 26) {
                 HStack {
                     Spacer()
-                    Button(action: viewCodeAction) { Label("View code", systemImage: "chevron.left.forwardslash.chevron.right") }
+                    Button(action: viewCodeAction) { Label("소스코드 보기", systemImage: "chevron.left.forwardslash.chevron.right") }
                         .font(.headline)
                 }
                 Text("소스")
@@ -386,8 +386,8 @@ struct SourceEditor: View {
                 SourceTextField(title: "소스 부제목 (선택 사항)", text: $store.source.subtitle)
                 SourceTextField(title: "소스 설명 (선택 사항)", text: $store.source.sourceDescription, multiline: true)
                 SourceTextField(title: "웹사이트 (선택 사항)", text: $store.source.website, isURL: true)
-                SourceTextField(title: "Patreon URL (optional)", text: $store.source.patreonURL, isURL: true)
-                Text("Website와 Patreon URL은 NightFox JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
+                SourceTextField(title: "Patreon URL (선택 사항)", text: $store.source.patreonURL, isURL: true)
+                Text("웹사이트와 Patreon URL은 NightFox JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, -18)
@@ -396,7 +396,7 @@ struct SourceEditor: View {
                     HStack {
                         Text("대표 앱")
                         Spacer()
-                        Button(action: addAppAction) { Label("Add", systemImage: "plus") }
+                        Button(action: addAppAction) { Label("추가", systemImage: "plus") }
                             .font(.headline)
                     }
                     featuredAppsPanel
@@ -420,7 +420,7 @@ struct SourceEditor: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search", text: $searchText)
+                TextField("검색", text: $searchText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
@@ -590,18 +590,18 @@ struct SourceImageField: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.subheadline)
-                    TextField("Image URL", text: $url)
+                    TextField("이미지 URL", text: $url)
                         .urlField()
                         .padding(.horizontal, 12)
                         .frame(height: 38)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                     HStack {
                         PhotosPicker(selection: $selectedImage, matching: .images) {
-                            Text("Browse image")
+                            Text("이미지 선택")
                         }
                         Spacer()
                         if !url.isEmpty || localPreview != nil {
-                            Button("Delete", role: .destructive) {
+                            Button("삭제", role: .destructive) {
                                 url = ""
                                 localPreview = nil
                                 selectedImage = nil
@@ -767,13 +767,13 @@ struct PermissionsEditor: View {
     @Binding var permissions: AppPermissions
     var body: some View {
         Form {
-            Section("Entitlements") {
+            Section("앱 권한 설정") {
                 TextField("한 줄에 하나씩", text: Binding(
                     get: { permissions.entitlements.joined(separator: "\n") },
                     set: { permissions.entitlements = $0.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
                 ), axis: .vertical).lineLimit(4...10)
             }
-            Section("Privacy UsageDescription") {
+            Section("개인정보 사용 설명") {
                 TextField("키=설명 형식, 한 줄에 하나씩", text: Binding(
                     get: { permissions.privacy.keys.sorted().map { "\($0)=\(permissions.privacy[$0] ?? "")" }.joined(separator: "\n") },
                     set: { permissions.privacy = parsePairs($0) }
