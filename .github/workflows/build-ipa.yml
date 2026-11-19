@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -24,9 +24,44 @@ jobs:
       - name: Prepare IPA artifact
         run: ./scripts/prepare-artifact.sh
 
+      - name: Verify IPA package
+        run: unzip -tq build/artifacts/Source_Editor.ipa
+
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:
           path: build/artifacts/Source_Editor.ipa
           if-no-files-found: error
           archive: false
+
+      - name: Publish IPA for Safari download
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ipa="build/artifacts/Source_Editor.ipa"
+          expected_digest="sha256:$(shasum -a 256 "$ipa" | cut -d ' ' -f 1)"
+
+          gh release create "$tag" "$ipa" \
+            --target "$GITHUB_SHA" \
+            --title "Source Editor build ${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" \
+            --notes "Unsigned IPA from GitHub Actions run ${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}. Sign with Feather before installing." \
+            --prerelease --draft
+
+          actual_digest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
+            --jq '.assets[] | select(.name == "Source_Editor.ipa") | .digest')"
+          if [[ "$actual_digest" != "$expected_digest" ]]; then
+            echo "Release IPA digest mismatch: expected $expected_digest, got $actual_digest" >&2
+            exit 1
+          fi
+
+          gh release edit "$tag" --draft=false
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/Source_Editor.ipa"
+          {
+            echo "### iPhone/iPad Safari download"
+            echo "[Source_Editor.ipa]($url)"
+            echo
+            echo "Download the IPA from this Release link, then import it into Feather for signing."
+            echo "SHA-256: \`${expected_digest#sha256:}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
