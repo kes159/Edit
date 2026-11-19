@@ -417,20 +417,28 @@ struct SourceEditor: View {
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 
+    @ViewBuilder
     private func featuredRow(_ app: AltApp) -> some View {
         let selected = store.source.featuredApps.contains(app.bundleIdentifier)
-        return HStack(spacing: 12) {
-            Menu {
-                Button("위로 이동", systemImage: "arrow.up") { moveFeatured(app.bundleIdentifier, offset: -1) }
-                    .disabled(!selected || store.source.featuredApps.first == app.bundleIdentifier)
-                Button("아래로 이동", systemImage: "arrow.down") { moveFeatured(app.bundleIdentifier, offset: 1) }
-                    .disabled(!selected || store.source.featuredApps.last == app.bundleIdentifier)
-            } label: {
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 44)
-            }
-            .accessibilityLabel("\(app.name) 순서 변경")
+        if selected {
+            featuredRowContent(app, selected: true)
+                .contentShape(Rectangle())
+                .draggable("featured:\(app.bundleIdentifier)")
+                .dropDestination(for: String.self) { items, _ in
+                    guard let payload = items.first, payload.hasPrefix("featured:") else { return false }
+                    return moveFeatured(from: String(payload.dropFirst(9)), to: app.bundleIdentifier)
+                }
+        } else {
+            featuredRowContent(app, selected: false)
+        }
+    }
+
+    private func featuredRowContent(_ app: AltApp, selected: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(selected ? .blue : .gray)
+                .frame(width: 24, height: 44)
+                .accessibilityLabel(selected ? "길게 눌러 대표 앱 순서 변경" : "대표 앱을 선택하면 순서를 바꿀 수 있습니다")
             RemoteImage(url: app.iconURL, systemName: "app")
                 .frame(width: 38, height: 38)
                 .clipShape(RoundedRectangle(cornerRadius: 9))
@@ -463,10 +471,15 @@ struct SourceEditor: View {
         }
     }
 
-    private func moveFeatured(_ id: String, offset: Int) {
-        guard let index = store.source.featuredApps.firstIndex(of: id),
-              store.source.featuredApps.indices.contains(index + offset) else { return }
-        store.source.featuredApps.swapAt(index, index + offset)
+    private func moveFeatured(from sourceID: String, to targetID: String) -> Bool {
+        var order = store.source.featuredApps
+        guard let sourceIndex = order.firstIndex(of: sourceID),
+              let targetIndex = order.firstIndex(of: targetID),
+              sourceIndex != targetIndex else { return false }
+        order.remove(at: sourceIndex)
+        order.insert(sourceID, at: targetIndex)
+        withAnimation(.easeInOut(duration: 0.2)) { store.source.featuredApps = order }
+        return true
     }
 }
 

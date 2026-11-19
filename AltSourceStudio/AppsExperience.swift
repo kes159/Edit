@@ -33,14 +33,21 @@ struct AppsScreen: View {
                     Button {
                         store.source.apps.append(AltApp())
                         openNewApp = true
-                    } label: { Image(systemName: "plus.circle") }
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .resizable().scaledToFit()
+                            .frame(width: 26, height: 26)
+                            .frame(width: 36, height: 36)
+                    }
                     .accessibilityLabel("앱 추가")
                     Button { editing.toggle() } label: {
                         Image(systemName: editing ? "checkmark.circle" : "square.and.pencil")
+                            .resizable().scaledToFit()
+                            .frame(width: 26, height: 26)
+                            .frame(width: 36, height: 36)
                     }
                     .accessibilityLabel(editing ? "편집 완료" : "앱 목록 편집")
                 }
-                .font(.title3)
 
                 if store.source.apps.isEmpty {
                     ContentUnavailableView("앱이 없습니다", systemImage: "apps.iphone", description: Text("앱을 추가해 주세요."))
@@ -54,12 +61,10 @@ struct AppsScreen: View {
                                     Button(role: .destructive) { removeApp(index) } label: {
                                         Image(systemName: "minus.circle.fill")
                                     }
-                                    Menu {
-                                        Button("위로 이동", systemImage: "arrow.up") { moveApp(index, by: -1) }
-                                            .disabled(index == 0)
-                                        Button("아래로 이동", systemImage: "arrow.down") { moveApp(index, by: 1) }
-                                            .disabled(index == store.source.apps.count - 1)
-                                    } label: { Image(systemName: "line.3.horizontal") }
+                                    Image(systemName: "line.3.horizontal")
+                                        .foregroundStyle(.blue)
+                                        .frame(width: 24, height: 44)
+                                        .accessibilityLabel("길게 눌러 앱 순서 변경")
                                 }
                                 NavigationLink {
                                     AppEditor(app: $store.source.apps[index])
@@ -67,6 +72,14 @@ struct AppsScreen: View {
                                     appCard(store.source.apps[index])
                                 }
                                 .buttonStyle(.plain)
+                            }
+                            .contentShape(Rectangle())
+                            .draggable("app:\(index)")
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let payload = items.first,
+                                      payload.hasPrefix("app:"),
+                                      let sourceIndex = Int(payload.dropFirst(4)) else { return false }
+                                return moveApp(from: sourceIndex, to: index)
                             }
                         }
                     }
@@ -117,9 +130,15 @@ struct AppsScreen: View {
         store.source.featuredApps.removeAll { $0 == id }
     }
 
-    private func moveApp(_ index: Int, by offset: Int) {
-        guard store.source.apps.indices.contains(index + offset) else { return }
-        store.source.apps.swapAt(index, index + offset)
+    private func moveApp(from sourceIndex: Int, to targetIndex: Int) -> Bool {
+        var apps = store.source.apps
+        guard apps.indices.contains(sourceIndex),
+              apps.indices.contains(targetIndex),
+              sourceIndex != targetIndex else { return false }
+        let moved = apps.remove(at: sourceIndex)
+        apps.insert(moved, at: targetIndex)
+        withAnimation(.easeInOut(duration: 0.2)) { store.source.apps = apps }
+        return true
     }
 }
 
