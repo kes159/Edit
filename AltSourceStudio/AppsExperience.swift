@@ -618,10 +618,13 @@ struct AppEditor: View {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("검색", text: $versionSearch).textInputAutocapitalization(.never)
+                    TextField("검색", text: $versionSearch,
+                              prompt: Text("검색").foregroundColor(Color.primary.opacity(0.7)))
+                        .textInputAutocapitalization(.never)
+                        .foregroundStyle(.primary)
                 }
                 .padding(11)
-                .background(.white, in: RoundedRectangle(cornerRadius: 11))
+                .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
                 .padding(12)
 
                 if app.versions.isEmpty {

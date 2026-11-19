@@ -417,12 +417,14 @@ struct SourceEditor: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("검색", text: $searchText)
+                TextField("검색", text: $searchText,
+                          prompt: Text("검색").foregroundColor(Color.primary.opacity(0.7)))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .foregroundStyle(.primary)
             }
             .padding(12)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
             .padding(12)
 
             if store.source.apps.isEmpty {
