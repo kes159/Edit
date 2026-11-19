@@ -59,7 +59,10 @@ struct AppsScreen: View {
     @EnvironmentObject private var store: SourceStore
     @State private var search = ""
     @State private var editing = false
-    @State private var openNewApp = false
+    @State private var editorAppID: UUID?
+    @State private var showingEditor = false
+    @State private var lastDraggedAppID: UUID?
+    @State private var lastDragEndedAt: Date = .distantPast
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var dragFrames: [String: CGRect] = [:]
     @State private var dragSlotIndices: [UUID: Int] = [:]
@@ -91,8 +94,9 @@ struct AppsScreen: View {
                     Text("전체 \(store.source.apps.count)개").font(.headline)
                     Spacer()
                     Button {
-                        store.source.apps.append(AltApp())
-                        openNewApp = true
+                        let app = AltApp()
+                        store.source.apps.append(app)
+                        openEditor(for: app.editorID)
                     } label: {
                         Image(systemName: "plus.circle")
                             .resizable().scaledToFit()
@@ -129,8 +133,8 @@ struct AppsScreen: View {
                                         onEnd: { y in endDrag(app.editorID, y: y) }
                                     )
                                 }
-                                NavigationLink {
-                                    AppEditor(app: $store.source.apps[index])
+                                Button {
+                                    openEditor(for: app.editorID)
                                 } label: {
                                     appCard(app)
                                 }
@@ -168,8 +172,9 @@ struct AppsScreen: View {
         .coordinateSpace(name: "appsReorder")
         .onPreferenceChange(ReorderRowFrames.self) { rowFrames = $0 }
         .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(isPresented: $openNewApp) {
-            if let index = store.source.apps.indices.last {
+        .navigationDestination(isPresented: $showingEditor) {
+            if let editorAppID,
+               let index = store.source.apps.firstIndex(where: { $0.editorID == editorAppID }) {
                 AppEditor(app: $store.source.apps[index])
             }
         }
@@ -219,6 +224,14 @@ struct AppsScreen: View {
         store.source.featuredApps.removeAll { $0 == id }
     }
 
+    private func openEditor(for id: UUID) {
+        guard draggedAppID == nil,
+              !(lastDraggedAppID == id && Date().timeIntervalSince(lastDragEndedAt) < 0.5)
+        else { return }
+        editorAppID = id
+        showingEditor = true
+    }
+
     private func moveApp(_ id: UUID, to targetIndex: Int) {
         var apps = store.source.apps
         guard let sourceIndex = apps.firstIndex(where: { $0.editorID == id }),
@@ -254,6 +267,8 @@ struct AppsScreen: View {
     private func endDrag(_ id: UUID, y: CGFloat) {
         updateDrag(id, y: y)
         guard draggedAppID == id else { return }
+        lastDraggedAppID = id
+        lastDragEndedAt = Date()
         withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { draggedAppID = nil }
         dragFrames = [:]
         dragSlotIndices = [:]
