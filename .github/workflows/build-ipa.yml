@@ -21,9 +21,13 @@ jobs:
       - name: Build IPA
         run: ./scripts/build-ipa.sh
 
+      - name: Stamp IPA for artifact upload
+        id: package
+        run: ./scripts/prepare-artifact.sh
+
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: AltSourceStudio-unsigned-IPA
-          path: build/AltSourceStudio.ipa
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.ipa_path }}
           if-no-files-found: error
