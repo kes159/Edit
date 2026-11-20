@@ -171,7 +171,7 @@ private struct NewsEditor: View {
                     .padding(12)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 }
-                AppInputField(title: "뉴스 내용", text: $news.caption)
+                AppInputField(title: "뉴스 내용", text: $news.caption, multiline: true)
                 AppInputField(title: "뉴스 URL (선택 사항)", text: $news.url, identifier: true)
                 Text("현재 JSON 저장 형식에서는 뉴스 URL이 제외됩니다.")
                     .font(.caption2).foregroundStyle(.secondary)
