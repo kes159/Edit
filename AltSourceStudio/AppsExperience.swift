@@ -45,22 +45,60 @@ struct ReorderTouchSurface: UIViewRepresentable {
         context.coordinator.onEnd = onEnd
     }
 
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.restoreScrolling()
+    }
+
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var frame: CGRect = .zero
         var onTap: (() -> Void)?
         var onChange: ((CGFloat) -> Void)?
         var onEnd: ((CGFloat) -> Void)?
+        private weak var scrollView: UIScrollView?
+        private var scrollWasEnabled = true
+        private var startWindowY: CGFloat?
+        private var startFingerY: CGFloat?
+        private var lastFingerY: CGFloat?
 
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             if gesture.state == .ended { onTap?() }
         }
 
         @objc func pressed(_ gesture: UILongPressGestureRecognizer) {
-            guard validReorderFrame(frame), let view = gesture.view else { return }
-            let y = frame.minY + gesture.location(in: view).y
+            guard let view = gesture.view else { return }
+            if gesture.state == .began {
+                guard validReorderFrame(frame), let window = view.window else { return }
+                let fingerY = frame.minY + gesture.location(in: view).y
+                let windowY = gesture.location(in: window).y
+                guard fingerY.isFinite, windowY.isFinite else { return }
+                startFingerY = fingerY
+                startWindowY = windowY
+                lastFingerY = fingerY
+                var ancestor: UIView? = view.superview
+                while let current = ancestor {
+                    if let scroll = current as? UIScrollView {
+                        scrollView = scroll
+                        scrollWasEnabled = scroll.isScrollEnabled
+                        scroll.isScrollEnabled = false
+                        break
+                    }
+                    ancestor = current.superview
+                }
+                onChange?(fingerY)
+                return
+            }
+            defer {
+                if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+                    restoreScrolling()
+                }
+            }
+            guard let startFingerY, let startWindowY else { return }
+            let y = view.window.map { startFingerY + gesture.location(in: $0).y - startWindowY }
+                ?? lastFingerY ?? startFingerY
             guard y.isFinite else { return }
+            lastFingerY = y
             switch gesture.state {
-            case .began, .changed: onChange?(y)
+            case .changed: onChange?(y)
             case .ended, .cancelled: onEnd?(y)
             default: break
             }
@@ -69,6 +107,14 @@ struct ReorderTouchSurface: UIViewRepresentable {
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
             true
+        }
+
+        func restoreScrolling() {
+            if let scrollView { scrollView.isScrollEnabled = scrollWasEnabled }
+            scrollView = nil
+            startWindowY = nil
+            startFingerY = nil
+            lastFingerY = nil
         }
     }
 }
@@ -154,7 +200,6 @@ struct AppsScreen: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("앱").font(.system(size: 34, weight: .bold)).padding(.top, 14)
@@ -237,6 +282,7 @@ struct AppsScreen: View {
             .padding(.bottom, 28)
             .frame(maxWidth: .infinity)
         }
+        .overlay(alignment: .topLeading) {
         if let draggedAppID,
            let app = store.source.apps.first(where: { $0.editorID == draggedAppID }),
            let frame = dragFrames["app:\(draggedAppID.uuidString)"],

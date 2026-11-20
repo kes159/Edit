@@ -390,7 +390,6 @@ struct SourceEditor: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 HStack {
@@ -438,6 +437,7 @@ struct SourceEditor: View {
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
         }
+        .overlay(alignment: .topLeading) {
         if let handleDragID,
            let app = store.source.apps.first(where: { $0.bundleIdentifier == handleDragID }),
            let frame = dragFrames["featured:\(handleDragID)"],
