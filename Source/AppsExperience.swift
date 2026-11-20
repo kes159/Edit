@@ -14,11 +14,19 @@ func safeReorderY(_ fingerY: CGFloat, offset: CGFloat) -> CGFloat? {
     return y.isFinite && abs(y) < 100_000 ? y : nil
 }
 
+enum ReorderMotion {
+    static let lift = Animation.interactiveSpring(response: 0.22, dampingFraction: 0.92)
+    static let follow = Animation.linear(duration: 1.0 / 60.0)
+    static let shift = Animation.interactiveSpring(response: 0.30, dampingFraction: 0.94, blendDuration: 0.12)
+    static let drop = Animation.interactiveSpring(response: 0.24, dampingFraction: 0.96)
+}
+
 final class ReorderAutoScroller: NSObject {
     weak var scrollView: UIScrollView?
     private var displayLink: CADisplayLink?
     private var fingerY: CGFloat = 0
     private var bottomBoundary: CGFloat?
+    private var scrollVelocity: CGFloat = 0
 
     func attach(_ scrollView: UIScrollView) { self.scrollView = scrollView }
 
@@ -27,6 +35,7 @@ final class ReorderAutoScroller: NSObject {
         bottomBoundary = scrollView.map { visibleBottom(of: $0) }
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(scrollIfNeeded(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -37,6 +46,7 @@ final class ReorderAutoScroller: NSObject {
         displayLink?.invalidate()
         displayLink = nil
         bottomBoundary = nil
+        scrollVelocity = 0
     }
 
     @objc private func scrollIfNeeded(_ link: CADisplayLink) {
@@ -49,14 +59,16 @@ final class ReorderAutoScroller: NSObject {
         else {
             let bottom = bottomBoundary ?? visibleBottom(of: scrollView)
             let start = max(edge + 40, bottom - 150)
-            guard fingerY > start else { return }
+            guard fingerY > start else { scrollVelocity = 0; return }
             strength = max(0.3, min(1, (fingerY - start) / max(1, bottom - start)))
         }
         let minY = -scrollView.adjustedContentInset.top
         let maxY = max(minY, scrollView.contentSize.height - height + scrollView.adjustedContentInset.bottom)
         let frameDuration = min(max(link.targetTimestamp - link.timestamp, 1.0 / 120), 1.0 / 30)
         let speed: CGFloat = strength > 0 ? 1_500 : 900
-        let next = min(max(scrollView.contentOffset.y + strength * speed * frameDuration, minY), maxY)
+        let targetVelocity = strength * speed
+        scrollVelocity += (targetVelocity - scrollVelocity) * min(1, frameDuration * 18)
+        let next = min(max(scrollView.contentOffset.y + scrollVelocity * frameDuration, minY), maxY)
         guard next.isFinite, abs(next - scrollView.contentOffset.y) > 0.1 else { return }
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: next), animated: false)
     }
@@ -391,6 +403,8 @@ struct AppsScreen: View {
                 .scaleEffect(1.025)
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
                 .position(x: frame.midX, y: previewY)
+                .animation(ReorderMotion.follow, value: dragFingerY)
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .allowsHitTesting(false)
                 .zIndex(1)
         }
@@ -403,7 +417,10 @@ struct AppsScreen: View {
                 DispatchQueue.main.async { updateDrag(draggedAppID, y: dragFingerY) }
             }
         }
-        .onDisappear { autoScroller.stop() }
+        .onDisappear {
+            autoScroller.stop()
+            store.finishReorder()
+        }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $showingEditor) {
             if let editorAppID,
@@ -472,7 +489,7 @@ struct AppsScreen: View {
               sourceIndex != targetIndex else { return }
         let moved = apps.remove(at: sourceIndex)
         apps.insert(moved, at: targetIndex)
-        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.85)) { store.source.apps = apps }
+        withAnimation(ReorderMotion.shift) { store.reorderApps(apps) }
     }
 
     private func updateDrag(_ id: UUID, y: CGFloat) {
@@ -482,7 +499,8 @@ struct AppsScreen: View {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames[key] else { return }
             dragTouchOffset = y - frame.midY
-            draggedAppID = id
+            dragFingerY = y
+            withAnimation(ReorderMotion.lift) { draggedAppID = id }
             autoScroller.start(at: y)
         }
         guard draggedAppID == id else { return }
@@ -508,8 +526,9 @@ struct AppsScreen: View {
         lastDraggedAppID = id
         lastDragEndedAt = Date()
         autoScroller.stop()
-        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { draggedAppID = nil }
+        withAnimation(ReorderMotion.drop) { draggedAppID = nil }
         dragFrames = [:]
+        store.finishReorder()
     }
 }
 

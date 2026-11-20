@@ -4,8 +4,10 @@ import UniformTypeIdentifiers
 
 final class SourceStore: ObservableObject {
     private var importedJSON: Data?
+    private var isTransientReorderChange = false
+    private var hasUnsavedReorder = false
     @Published var source: Source {
-        didSet { save() }
+        didSet { if !isTransientReorderChange { save() } }
     }
     @Published var message: String?
     var hasSavedDraft: Bool { UserDefaults.standard.data(forKey: "sourceDraft") != nil }
@@ -23,7 +25,26 @@ final class SourceStore: ObservableObject {
     private func save() {
         if let data = try? JSONEncoder().encode(source) {
             UserDefaults.standard.set(data, forKey: "sourceDraft")
+            hasUnsavedReorder = false
         }
+    }
+
+    func reorderApps(_ apps: [SourceApp]) {
+        isTransientReorderChange = true
+        source.apps = apps
+        isTransientReorderChange = false
+        hasUnsavedReorder = true
+    }
+
+    func reorderFeaturedApps(_ ids: [String]) {
+        isTransientReorderChange = true
+        source.featuredApps = ids
+        isTransientReorderChange = false
+        hasUnsavedReorder = true
+    }
+
+    func finishReorder() {
+        if hasUnsavedReorder { save() }
     }
 
     func newProject() {

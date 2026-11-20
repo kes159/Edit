@@ -11,6 +11,7 @@ struct SourceEditorApp: App {
 struct RootView: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @State private var importing = false
     @State private var importProgress: Double?
     @State private var exporting = false
@@ -80,6 +81,9 @@ struct RootView: View {
                 selectedTab = .source
                 selectedSection = .source
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { store.finishReorder() }
         }
     }
 
@@ -449,6 +453,8 @@ struct SourceEditor: View {
                 .scaleEffect(1.025)
                 .shadow(color: .black.opacity(0.2), radius: 10, y: 6)
                 .position(x: frame.midX, y: previewY)
+                .animation(ReorderMotion.follow, value: dragFingerY)
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .allowsHitTesting(false)
                 .zIndex(1)
         }
@@ -461,7 +467,10 @@ struct SourceEditor: View {
                 DispatchQueue.main.async { updateFeaturedDrag(handleDragID, y: dragFingerY) }
             }
         }
-        .onDisappear { autoScroller.stop() }
+        .onDisappear {
+            autoScroller.stop()
+            store.finishReorder()
+        }
         .toolbar(.hidden, for: .navigationBar)
         .keyboardDismissButton()
     }
@@ -587,7 +596,7 @@ struct SourceEditor: View {
               sourceIndex != targetIndex else { return }
         order.remove(at: sourceIndex)
         order.insert(sourceID, at: targetIndex)
-        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.85)) { store.source.featuredApps = order }
+        withAnimation(ReorderMotion.shift) { store.reorderFeaturedApps(order) }
     }
 
     private func updateFeaturedDrag(_ id: String, y: CGFloat) {
@@ -596,7 +605,8 @@ struct SourceEditor: View {
             dragFrames = rowFrames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames["featured:\(id)"] else { return }
             dragTouchOffset = y - frame.midY
-            handleDragID = id
+            dragFingerY = y
+            withAnimation(ReorderMotion.lift) { handleDragID = id }
             autoScroller.start(at: y)
         }
         guard handleDragID == id else { return }
@@ -619,8 +629,9 @@ struct SourceEditor: View {
         updateFeaturedDrag(id, y: y)
         guard handleDragID == id else { return }
         autoScroller.stop()
-        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { handleDragID = nil }
+        withAnimation(ReorderMotion.drop) { handleDragID = nil }
         dragFrames = [:]
+        store.finishReorder()
     }
 }
 
