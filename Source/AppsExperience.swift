@@ -2,173 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import QuartzCore
 
-final class ReorderDiagnostics: NSObject, ObservableObject {
-    @Published private(set) var isRunning = false
-    @Published private(set) var report = ""
-
-    private final class Gesture {
-        let area: String
-        let input: String
-        let started: CFTimeInterval
-        var frameGaps: [Double] = []
-        var updateCount = 0
-        var updateTotal = 0.0
-        var updateMax = 0.0
-        var reorderCount = 0
-        var reorderTotal = 0.0
-        var reorderMax = 0.0
-        var autoScrollCount = 0
-        var finishTime = 0.0
-        var duration = 0.0
-        var slowEvents: [String] = []
-
-        init(area: String, input: String, started: CFTimeInterval) {
-            self.area = area
-            self.input = input
-            self.started = started
-        }
-    }
-
-    private var startedAt: Date?
-    private var gestures: [Gesture] = []
-    private var active: Gesture?
-    private var displayLink: CADisplayLink?
-    private var previousFrameTime: CFTimeInterval?
-
-    func start() {
-        displayLink?.invalidate()
-        gestures.removeAll()
-        active = nil
-        previousFrameTime = nil
-        startedAt = Date()
-        report = ""
-        isRunning = true
-    }
-
-    func stop() {
-        guard isRunning else { return }
-        finishGesture()
-        displayLink?.invalidate()
-        displayLink = nil
-        isRunning = false
-        report = makeReport()
-    }
-
-    func beginGesture(area: String, input: String) {
-        guard isRunning, active == nil else { return }
-        previousFrameTime = nil
-        active = Gesture(area: area, input: input, started: CACurrentMediaTime())
-        let link = CADisplayLink(target: self, selector: #selector(frameTick(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-    }
-
-    func recordUpdate(duration: Double, autoScrolling: Bool) {
-        guard isRunning, let gesture = active else { return }
-        gesture.updateCount += 1
-        gesture.updateTotal += duration
-        gesture.updateMax = max(gesture.updateMax, duration)
-        if autoScrolling { gesture.autoScrollCount += 1 }
-        recordSlowEvent("드래그 처리", duration: duration, threshold: 0.010, in: gesture)
-    }
-
-    func recordReorder(duration: Double) {
-        guard isRunning, let gesture = active else { return }
-        gesture.reorderCount += 1
-        gesture.reorderTotal += duration
-        gesture.reorderMax = max(gesture.reorderMax, duration)
-        recordSlowEvent("순서 변경", duration: duration, threshold: 0.010, in: gesture)
-    }
-
-    func recordFinish(duration: Double) {
-        guard isRunning, let gesture = active else { return }
-        gesture.finishTime = duration
-        recordSlowEvent("종료/저장", duration: duration, threshold: 0.010, in: gesture)
-    }
-
-    func finishGesture() {
-        guard isRunning, let gesture = active else { return }
-        gesture.duration = CACurrentMediaTime() - gesture.started
-        gestures.append(gesture)
-        active = nil
-        previousFrameTime = nil
-        displayLink?.invalidate()
-        displayLink = nil
-    }
-
-    @objc private func frameTick(_ link: CADisplayLink) {
-        guard let gesture = active else { return }
-        if let previousFrameTime {
-            let gap = link.timestamp - previousFrameTime
-            if gap > 0, gap < 10 {
-                gesture.frameGaps.append(gap)
-                if gap > 0.025, gesture.slowEvents.count < 24 {
-                    let elapsed = max(0, link.timestamp - gesture.started)
-                    gesture.slowEvents.append("\(String(format: "%.2f", elapsed))초 화면 갱신 간격 \(ms(gap))")
-                }
-            }
-        }
-        previousFrameTime = link.timestamp
-    }
-
-    private func makeReport() -> String {
-        let refresh = max(60, UIScreen.main.maximumFramesPerSecond)
-        let budget = 1.0 / Double(refresh)
-        var lines = [
-            "Source Editor 드래그 진단",
-            "측정 시작: \(startedAt?.formatted(date: .numeric, time: .standard) ?? "-")",
-            "기기: \(UIDevice.current.model) · 화면 최대 \(refresh)Hz",
-            "제스처 \(gestures.count)회",
-            ""
-        ]
-        if gestures.isEmpty {
-            lines.append("측정된 순서 변경 제스처가 없습니다. 소스 또는 앱 탭에서 앱을 끌어 옮겨 주세요.")
-        }
-        for (index, gesture) in gestures.enumerated() {
-            let gaps = gesture.frameGaps.sorted()
-            let averageFPS = gaps.isEmpty ? 0 : Double(gaps.count) / gaps.reduce(0, +)
-            let p95 = gaps.isEmpty ? 0 : gaps[min(gaps.count - 1, Int(Double(gaps.count) * 0.95))]
-            let slow = gaps.filter { $0 > budget * 1.5 }.count
-            let severe = gaps.filter { $0 > budget * 2.5 }.count
-            lines += [
-                "[\(index + 1)] \(gesture.area) · \(gesture.input) · \(String(format: "%.2f", gesture.duration))초",
-                "화면: 평균 \(String(format: "%.1f", averageFPS))fps, 프레임 간격 p95 \(ms(p95)), 최대 \(ms(gaps.last ?? 0))",
-                "지연 프레임: \(slow)/\(gaps.count) (목표 간격의 1.5배 초과), 심한 지연 \(severe)회 (2.5배 초과)",
-                "드래그 처리: \(gesture.updateCount)회, 평균 \(ms(gesture.updateCount == 0 ? 0 : gesture.updateTotal / Double(gesture.updateCount))), 최대 \(ms(gesture.updateMax))",
-                "순서 변경: \(gesture.reorderCount)회, 평균 \(ms(gesture.reorderCount == 0 ? 0 : gesture.reorderTotal / Double(gesture.reorderCount))), 최대 \(ms(gesture.reorderMax))",
-                "자동 스크롤 중 처리: \(gesture.autoScrollCount)회 · 종료/저장: \(ms(gesture.finishTime))"
-            ]
-            if !gesture.slowEvents.isEmpty {
-                lines.append("지연 기록 (처음 \(gesture.slowEvents.count)개):")
-                lines += gesture.slowEvents.map { "  · \($0)" }
-            }
-            if gesture.reorderMax > budget {
-                lines.append("가능성: 순서 변경 처리 시간이 화면 갱신 간격을 넘었습니다.")
-            } else if gesture.updateMax > budget {
-                lines.append("가능성: 드래그 위치 계산이 화면 갱신 간격을 넘었습니다.")
-            } else if severe > 0 {
-                lines.append("가능성: 측정된 드래그 처리 밖에서 메인 스레드 또는 화면 렌더링이 지연됐습니다.")
-            } else {
-                lines.append("측정 구간에서 뚜렷한 지연 원인은 확인되지 않았습니다.")
-            }
-            lines.append("")
-        }
-        lines.append("참고: FPS는 화면 갱신 콜백 간격으로 추정한 값입니다. GPU 작업이나 시스템 부하의 정확한 원인은 Instruments로 확인해야 합니다.")
-        return lines.joined(separator: "\n")
-    }
-
-    private func ms(_ seconds: Double) -> String {
-        String(format: "%.1fms", seconds * 1_000)
-    }
-
-    private func recordSlowEvent(_ name: String, duration: Double, threshold: Double, in gesture: Gesture) {
-        guard duration > threshold, gesture.slowEvents.count < 24 else { return }
-        let elapsed = max(0, CACurrentMediaTime() - gesture.started)
-        gesture.slowEvents.append("\(String(format: "%.2f", elapsed))초 \(name) \(ms(duration))")
-    }
-}
-
 func validReorderFrame(_ frame: CGRect) -> Bool {
     frame.origin.x.isFinite && frame.origin.y.isFinite
         && frame.width.isFinite && frame.height.isFinite
@@ -500,7 +333,6 @@ struct EditorListActionIcon: View {
 
 struct AppsScreen: View {
     @EnvironmentObject private var store: SourceStore
-    @EnvironmentObject private var diagnostics: ReorderDiagnostics
     @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
     @State private var editing = false
@@ -541,21 +373,34 @@ struct AppsScreen: View {
                 .padding(12)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
                 Divider()
-                HStack {
-                    Text("전체 \(store.source.apps.count)개").font(.headline)
-                    Spacer()
-                    Button {
-                        let app = SourceApp()
-                        store.source.apps.append(app)
-                        openEditor(for: app.editorID)
-                    } label: {
-                        EditorListActionIcon(systemName: "plus.circle")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("전체 \(store.source.apps.count)개").font(.headline)
+                        Spacer()
+                        Button {
+                            let app = SourceApp()
+                            store.source.apps.append(app)
+                            openEditor(for: app.editorID)
+                        } label: {
+                            EditorListActionIcon(systemName: "plus.circle")
+                        }
+                        .accessibilityLabel("앱 추가")
+                        Button { editing.toggle() } label: {
+                            EditorListActionIcon(systemName: editing ? "checkmark.circle" : "square.and.pencil")
+                        }
+                        .accessibilityLabel(editing ? "편집 완료" : "앱 목록 편집")
                     }
-                    .accessibilityLabel("앱 추가")
-                    Button { editing.toggle() } label: {
-                        EditorListActionIcon(systemName: editing ? "checkmark.circle" : "square.and.pencil")
-                    }
-                    .accessibilityLabel(editing ? "편집 완료" : "앱 목록 편집")
+                    (
+                        Text("앱을 길게 눌러 끌거나, ")
+                        + Text(Image(systemName: "square.and.pencil"))
+                        + Text(" 버튼을 누른 뒤 ")
+                        + Text(Image(systemName: "line.3.horizontal"))
+                        + Text(" 손잡이를 끌어 순서를 바꿀 수 있습니다.")
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 if store.source.apps.isEmpty {
@@ -573,7 +418,7 @@ struct AppsScreen: View {
                                     ImmediateReorderHandle(
                                         coordinateSpace: "appsReorder",
                                         label: "누른 채로 끌어 앱 순서 변경",
-                                        onChange: { y in updateDrag(app.editorID, y: y, input: "3줄 손잡이") },
+                                        onChange: { y in updateDrag(app.editorID, y: y) },
                                         onEnd: { y in endDrag(app.editorID, y: y) }
                                     )
                                 }
@@ -583,7 +428,7 @@ struct AppsScreen: View {
                                             ReorderTouchSurface(
                                                 frame: geometry.frame(in: .named("appsReorder")),
                                                 onTap: { openEditor(for: app.editorID) },
-                                                onChange: { y in updateDrag(app.editorID, y: y, input: "롱프레스") },
+                                                onChange: { y in updateDrag(app.editorID, y: y) },
                                                 onEnd: { y in endDrag(app.editorID, y: y) }
                                             )
                                         }
@@ -636,14 +481,12 @@ struct AppsScreen: View {
             autoScroller.stop()
             commitPreviewApps()
             draggedAppID = nil
-            diagnostics.finishGesture()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 autoScroller.stop()
                 commitPreviewApps()
                 draggedAppID = nil
-                diagnostics.finishGesture()
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -715,9 +558,7 @@ struct AppsScreen: View {
               sourceIndex != targetIndex else { return }
         ids.remove(at: sourceIndex)
         ids.insert(id, at: targetIndex)
-        let started = CACurrentMediaTime()
         withAnimation(ReorderMotion.shift) { previewAppIDs = ids }
-        diagnostics.recordReorder(duration: CACurrentMediaTime() - started)
     }
 
     private func commitPreviewApps() {
@@ -729,15 +570,12 @@ struct AppsScreen: View {
         self.previewAppIDs = nil
     }
 
-    private func updateDrag(_ id: UUID, y: CGFloat, input: String = "자동 스크롤") {
+    private func updateDrag(_ id: UUID, y: CGFloat) {
         guard y.isFinite else { return }
-        let started = CACurrentMediaTime()
-        defer { diagnostics.recordUpdate(duration: CACurrentMediaTime() - started, autoScrolling: autoScroller.isAutoScrolling) }
         let key = "app:\(id.uuidString)"
         if draggedAppID == nil {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames[key] else { return }
-            diagnostics.beginGesture(area: "앱 목록", input: input)
             previewAppIDs = store.source.apps.map(\.editorID)
             dragTouchOffset = y - frame.midY
             dragPosition.update(to: y)
@@ -769,10 +607,7 @@ struct AppsScreen: View {
         autoScroller.stop()
         withAnimation(ReorderMotion.drop) { draggedAppID = nil }
         dragFrames = [:]
-        let started = CACurrentMediaTime()
         commitPreviewApps()
-        diagnostics.recordFinish(duration: CACurrentMediaTime() - started)
-        diagnostics.finishGesture()
     }
 }
 

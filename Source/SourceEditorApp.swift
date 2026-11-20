@@ -5,19 +5,16 @@ import UniformTypeIdentifiers
 @main
 struct SourceEditorApp: App {
     @StateObject private var store = SourceStore()
-    @StateObject private var diagnostics = ReorderDiagnostics()
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(store)
-                .environmentObject(diagnostics)
         }
     }
 }
 
 struct RootView: View {
     @EnvironmentObject private var store: SourceStore
-    @EnvironmentObject private var diagnostics: ReorderDiagnostics
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @State private var importing = false
@@ -93,7 +90,6 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 store.finishReorder()
-                diagnostics.finishGesture()
             }
         }
     }
@@ -385,7 +381,6 @@ private enum EditorSection: String, CaseIterable, Identifiable {
 
 struct SourceEditor: View {
     @EnvironmentObject private var store: SourceStore
-    @EnvironmentObject private var diagnostics: ReorderDiagnostics
     @Environment(\.scenePhase) private var scenePhase
     let viewCodeAction: () -> Void
     let addAppAction: () -> Void
@@ -489,14 +484,12 @@ struct SourceEditor: View {
             autoScroller.stop()
             commitFeaturedOrder()
             handleDragID = nil
-            diagnostics.finishGesture()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 autoScroller.stop()
                 commitFeaturedOrder()
                 handleDragID = nil
-                diagnostics.finishGesture()
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -555,7 +548,7 @@ struct SourceEditor: View {
                 ImmediateReorderHandle(
                     coordinateSpace: "featuredReorder",
                     label: "누른 채로 끌어 대표 앱 순서 변경",
-                    onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y, input: "3줄 손잡이") },
+                    onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y) },
                     onEnd: { y in endFeaturedDrag(app.bundleIdentifier, y: y) }
                 )
             } else {
@@ -571,7 +564,7 @@ struct SourceEditor: View {
                             ReorderTouchSurface(
                                 frame: geometry.frame(in: .named("featuredReorder")),
                                 onTap: nil,
-                                onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y, input: "롱프레스") },
+                                onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y) },
                                 onEnd: { y in endFeaturedDrag(app.bundleIdentifier, y: y) }
                             )
                             .frame(width: max(0, geometry.size.width - 52))
@@ -624,9 +617,7 @@ struct SourceEditor: View {
               sourceIndex != targetIndex else { return }
         order.remove(at: sourceIndex)
         order.insert(sourceID, at: targetIndex)
-        let started = CACurrentMediaTime()
         withAnimation(ReorderMotion.shift) { previewFeaturedOrder = order }
-        diagnostics.recordReorder(duration: CACurrentMediaTime() - started)
     }
 
     private func commitFeaturedOrder() {
@@ -638,14 +629,11 @@ struct SourceEditor: View {
         self.previewFeaturedOrder = nil
     }
 
-    private func updateFeaturedDrag(_ id: String, y: CGFloat, input: String = "자동 스크롤") {
+    private func updateFeaturedDrag(_ id: String, y: CGFloat) {
         guard y.isFinite else { return }
-        let started = CACurrentMediaTime()
-        defer { diagnostics.recordUpdate(duration: CACurrentMediaTime() - started, autoScrolling: autoScroller.isAutoScrolling) }
         if handleDragID == nil {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames["featured:\(id)"] else { return }
-            diagnostics.beginGesture(area: "소스 대표 앱", input: input)
             previewFeaturedOrder = store.source.featuredApps
             dragTouchOffset = y - frame.midY
             dragPosition.update(to: y)
@@ -674,10 +662,7 @@ struct SourceEditor: View {
         autoScroller.stop()
         withAnimation(ReorderMotion.drop) { handleDragID = nil }
         dragFrames = [:]
-        let started = CACurrentMediaTime()
         commitFeaturedOrder()
-        diagnostics.recordFinish(duration: CACurrentMediaTime() - started)
-        diagnostics.finishGesture()
     }
 }
 

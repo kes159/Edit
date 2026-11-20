@@ -327,9 +327,7 @@ private func newsDisplayDate(_ value: String) -> String {
 }
 
 struct ProjectScreen: View {
-    @EnvironmentObject private var diagnostics: ReorderDiagnostics
     @State private var showingGitHubUpload = false
-    @State private var copiedDiagnostics = false
     let newAction: () -> Void
     let importAction: () -> Void
     let exportAction: () -> Void
@@ -352,64 +350,12 @@ struct ProjectScreen: View {
                     ("arrow.up.circle", "GitHub에 업로드하기", { showingGitHubUpload = true }),
                     ("chevron.left.forwardslash.chevron.right", "소스코드 보기", viewCodeAction)
                 ])
-                diagnosticPanel
             }
             .frame(maxWidth: 780).frame(maxWidth: .infinity)
             .padding(.bottom, 30)
         }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingGitHubUpload) { GitHubUploadSheet() }
-    }
-
-    private var diagnosticPanel: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("진단 모드").font(.title3.bold())
-            Text("소스 또는 앱 탭에서 앱을 끌어 옮길 때 화면 갱신 간격과 드래그 처리 시간을 측정합니다.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Button {
-                if diagnostics.isRunning {
-                    diagnostics.stop()
-                } else {
-                    diagnostics.start()
-                    copiedDiagnostics = false
-                }
-            } label: {
-                Label(diagnostics.isRunning ? "진단 모드 종료" : "진단 모드 시작",
-                      systemImage: diagnostics.isRunning ? "stop.circle.fill" : "play.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-
-            if diagnostics.isRunning {
-                Label("측정 중 · 앱을 옮긴 뒤 이곳에서 종료하세요.", systemImage: "waveform.path.ecg")
-                    .font(.subheadline)
-                    .foregroundStyle(.orange)
-            } else if !diagnostics.report.isEmpty {
-                HStack {
-                    Text("진단 로그").font(.headline)
-                    Spacer()
-                    Button {
-                        UIPasteboard.general.string = diagnostics.report
-                        copiedDiagnostics = true
-                    } label: {
-                        Label(copiedDiagnostics ? "복사됨" : "전체 복사",
-                              systemImage: copiedDiagnostics ? "checkmark" : "doc.on.doc")
-                    }
-                }
-                ScrollView {
-                    Text(diagnostics.report)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(12)
-                }
-                .frame(maxHeight: 360)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
-        .padding(.horizontal, 16)
     }
 
     private func projectGroup(_ title: String, rows: [(String, String, () -> Void)]) -> some View {
