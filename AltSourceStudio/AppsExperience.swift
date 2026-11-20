@@ -14,9 +14,85 @@ func safeReorderY(_ fingerY: CGFloat, offset: CGFloat) -> CGFloat? {
     return y.isFinite && abs(y) < 100_000 ? y : nil
 }
 
+final class ReorderAutoScroller: NSObject {
+    weak var scrollView: UIScrollView?
+    private var displayLink: CADisplayLink?
+    private var fingerY: CGFloat = 0
+
+    func attach(_ scrollView: UIScrollView) { self.scrollView = scrollView }
+
+    func start(at y: CGFloat) {
+        fingerY = y
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(scrollIfNeeded(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    func update(to y: CGFloat) { fingerY = y }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func scrollIfNeeded(_ link: CADisplayLink) {
+        guard let scrollView, fingerY.isFinite else { return }
+        let height = scrollView.bounds.height
+        guard height > 0, height.isFinite else { return }
+        let edge = min(90, height * 0.18)
+        let strength: CGFloat
+        if fingerY < edge { strength = -min(1, (edge - fingerY) / edge) }
+        else if fingerY > height - edge { strength = min(1, (fingerY - height + edge) / edge) }
+        else { return }
+        let minY = -scrollView.adjustedContentInset.top
+        let maxY = max(minY, scrollView.contentSize.height - height + scrollView.adjustedContentInset.bottom)
+        let frameDuration = min(max(link.targetTimestamp - link.timestamp, 1.0 / 120), 1.0 / 30)
+        let next = min(max(scrollView.contentOffset.y + strength * 900 * frameDuration, minY), maxY)
+        guard next.isFinite, abs(next - scrollView.contentOffset.y) > 0.1 else { return }
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: next), animated: false)
+    }
+}
+
+struct ReorderScrollLocator: UIViewRepresentable {
+    let onResolve: (UIScrollView) -> Void
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isUserInteractionEnabled = false
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.onResolve = onResolve
+        uiView.resolve()
+    }
+
+    final class ProbeView: UIView {
+        var onResolve: ((UIScrollView) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.resolve() }
+        }
+
+        func resolve() {
+            var ancestor = superview
+            while let current = ancestor {
+                if let scroll = current as? UIScrollView {
+                    onResolve?(scroll)
+                    return
+                }
+                ancestor = current.superview
+            }
+        }
+    }
+}
+
 struct ReorderTouchSurface: UIViewRepresentable {
     let frame: CGRect
-    let onTap: () -> Void
+    let onTap: (() -> Void)?
     let onChange: (CGFloat) -> Void
     let onEnd: (CGFloat) -> Void
 
@@ -25,10 +101,12 @@ struct ReorderTouchSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .clear
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
-        tap.delegate = context.coordinator
-        tap.cancelsTouchesInView = false
-        view.addGestureRecognizer(tap)
+        if onTap != nil {
+            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+            tap.delegate = context.coordinator
+            tap.cancelsTouchesInView = false
+            view.addGestureRecognizer(tap)
+        }
         let press = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pressed(_:)))
         press.minimumPressDuration = 0.4
         press.allowableMovement = 10
@@ -156,21 +234,6 @@ extension View {
             }
         }
     }
-
-    func pressToReorder(in coordinateSpace: String,
-                        onChange: @escaping (CGFloat) -> Void,
-                        onEnd: @escaping (CGFloat) -> Void) -> some View {
-        simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.35, maximumDistance: 8)
-                .sequenced(before: DragGesture(minimumDistance: 4, coordinateSpace: .named(coordinateSpace)))
-                .onChanged { phase in
-                    if case .second(true, let drag?) = phase { onChange(drag.location.y) }
-                }
-                .onEnded { phase in
-                    if case .second(true, let drag?) = phase { onEnd(drag.location.y) }
-                }
-        )
-    }
 }
 
 private final class ReorderFrameCache {
@@ -187,7 +250,7 @@ struct AppsScreen: View {
     @State private var lastDragEndedAt: Date = .distantPast
     @State private var rowFrameCache = ReorderFrameCache()
     @State private var dragFrames: [String: CGRect] = [:]
-    @State private var dragSlotIndices: [UUID: Int] = [:]
+    @State private var autoScroller = ReorderAutoScroller()
     @State private var draggedAppID: UUID?
     @State private var dragFingerY: CGFloat = 0
     @State private var dragTouchOffset: CGFloat = 0
@@ -239,7 +302,7 @@ struct AppsScreen: View {
                 } else if visibleApps.isEmpty {
                     ContentUnavailableView.search(text: search)
                 } else {
-                    LazyVStack(spacing: 10) {
+                    VStack(spacing: 10) {
                         ForEach(visibleApps, id: \.editorID) { app in
                             if let index = store.source.apps.firstIndex(where: { $0.editorID == app.editorID }) {
                             HStack(spacing: 7) {
@@ -281,6 +344,7 @@ struct AppsScreen: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 28)
             .frame(maxWidth: .infinity)
+            .background(ReorderScrollLocator { autoScroller.attach($0) })
         }
         .overlay(alignment: .topLeading) {
         if let draggedAppID,
@@ -299,7 +363,13 @@ struct AppsScreen: View {
         }
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "appsReorder")
-        .onPreferenceChange(ReorderRowFrames.self) { rowFrameCache.frames = $0 }
+        .onPreferenceChange(ReorderRowFrames.self) { frames in
+            rowFrameCache.frames = frames
+            if let draggedAppID {
+                DispatchQueue.main.async { updateDrag(draggedAppID, y: dragFingerY) }
+            }
+        }
+        .onDisappear { autoScroller.stop() }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $showingEditor) {
             if let editorAppID,
@@ -377,19 +447,23 @@ struct AppsScreen: View {
         if draggedAppID == nil {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames[key] else { return }
-            dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.apps.enumerated().map { ($0.element.editorID, $0.offset) })
             dragTouchOffset = y - frame.midY
             draggedAppID = id
+            autoScroller.start(at: y)
         }
         guard draggedAppID == id else { return }
         dragFingerY = y
+        autoScroller.update(to: y)
         guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
-        let slots = dragFrames.filter { $0.key.hasPrefix("app:") }.sorted { $0.value.midY < $1.value.midY }
+        let slots = rowFrameCache.frames.filter {
+            $0.key.hasPrefix("app:") && validReorderFrame($0.value)
+        }.sorted { $0.value.midY < $1.value.midY }
         guard let target = slots.enumerated().min(by: {
             abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
         })?.offset else { return }
         let targetID = UUID(uuidString: String(slots[target].key.dropFirst(4)))
-        if let targetID, let slotIndex = dragSlotIndices[targetID] {
+        if let targetID,
+           let slotIndex = store.source.apps.firstIndex(where: { $0.editorID == targetID }) {
             moveApp(id, to: slotIndex)
         }
     }
@@ -399,9 +473,9 @@ struct AppsScreen: View {
         guard draggedAppID == id else { return }
         lastDraggedAppID = id
         lastDragEndedAt = Date()
+        autoScroller.stop()
         withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { draggedAppID = nil }
         dragFrames = [:]
-        dragSlotIndices = [:]
     }
 }
 

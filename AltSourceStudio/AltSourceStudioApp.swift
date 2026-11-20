@@ -375,7 +375,7 @@ struct SourceEditor: View {
     @State private var searchText = ""
     @State private var rowFrames: [String: CGRect] = [:]
     @State private var dragFrames: [String: CGRect] = [:]
-    @State private var dragSlotIndices: [String: Int] = [:]
+    @State private var autoScroller = ReorderAutoScroller()
     @State private var handleDragID: String?
     @State private var dragFingerY: CGFloat = 0
     @State private var dragTouchOffset: CGFloat = 0
@@ -436,6 +436,7 @@ struct SourceEditor: View {
             .padding(.top, 16)
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
+            .background(ReorderScrollLocator { autoScroller.attach($0) })
         }
         .overlay(alignment: .topLeading) {
         if let handleDragID,
@@ -454,7 +455,13 @@ struct SourceEditor: View {
         }
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "featuredReorder")
-        .onPreferenceChange(ReorderRowFrames.self) { rowFrames = $0 }
+        .onPreferenceChange(ReorderRowFrames.self) { frames in
+            rowFrames = frames
+            if let handleDragID {
+                DispatchQueue.main.async { updateFeaturedDrag(handleDragID, y: dragFingerY) }
+            }
+        }
+        .onDisappear { autoScroller.stop() }
         .toolbar(.hidden, for: .navigationBar)
         .keyboardDismissButton()
     }
@@ -522,10 +529,17 @@ struct SourceEditor: View {
             }
             if selected {
                 featuredAppDetails(app, selected: true)
-                    .contentShape(Rectangle())
-                    .pressToReorder(in: "featuredReorder",
-                                    onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y) },
-                                    onEnd: { y in endFeaturedDrag(app.bundleIdentifier, y: y) })
+                    .overlay(alignment: .leading) {
+                        GeometryReader { geometry in
+                            ReorderTouchSurface(
+                                frame: geometry.frame(in: .named("featuredReorder")),
+                                onTap: nil,
+                                onChange: { y in updateFeaturedDrag(app.bundleIdentifier, y: y) },
+                                onEnd: { y in endFeaturedDrag(app.bundleIdentifier, y: y) }
+                            )
+                            .frame(width: max(0, geometry.size.width - 52))
+                        }
+                    }
             } else {
                 featuredAppDetails(app, selected: false)
             }
@@ -581,20 +595,22 @@ struct SourceEditor: View {
         if handleDragID == nil {
             dragFrames = rowFrames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames["featured:\(id)"] else { return }
-            dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.featuredApps.enumerated().map { ($0.element, $0.offset) })
             dragTouchOffset = y - frame.midY
             handleDragID = id
+            autoScroller.start(at: y)
         }
         guard handleDragID == id else { return }
         dragFingerY = y
+        autoScroller.update(to: y)
         guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
-        let slots = dragFrames.filter {
-            $0.key.hasPrefix("featured:") && dragSlotIndices[String($0.key.dropFirst(9))] != nil
+        let slots = rowFrames.filter {
+            $0.key.hasPrefix("featured:") && validReorderFrame($0.value)
+                && store.source.featuredApps.contains(String($0.key.dropFirst(9)))
         }.sorted { $0.value.midY < $1.value.midY }
         if let target = slots.enumerated().min(by: {
             abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
         })?.offset,
-           let slotIndex = dragSlotIndices[String(slots[target].key.dropFirst(9))] {
+           let slotIndex = store.source.featuredApps.firstIndex(of: String(slots[target].key.dropFirst(9))) {
             moveFeatured(id, to: slotIndex)
         }
     }
@@ -602,9 +618,9 @@ struct SourceEditor: View {
     private func endFeaturedDrag(_ id: String, y: CGFloat) {
         updateFeaturedDrag(id, y: y)
         guard handleDragID == id else { return }
+        autoScroller.stop()
         withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { handleDragID = nil }
         dragFrames = [:]
-        dragSlotIndices = [:]
     }
 }
 
