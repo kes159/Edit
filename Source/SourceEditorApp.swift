@@ -453,7 +453,6 @@ struct SourceEditor: View {
                 .scaleEffect(1.025)
                 .shadow(color: .black.opacity(0.2), radius: 10, y: 6)
                 .position(x: frame.midX, y: previewY)
-                .animation(ReorderMotion.follow, value: dragFingerY)
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .allowsHitTesting(false)
                 .zIndex(1)
@@ -463,8 +462,11 @@ struct SourceEditor: View {
         .coordinateSpace(name: "featuredReorder")
         .onPreferenceChange(ReorderRowFrames.self) { frames in
             rowFrames = frames
-            if let handleDragID {
-                DispatchQueue.main.async { updateFeaturedDrag(handleDragID, y: dragFingerY) }
+            if let handleDragID, autoScroller.isAutoScrolling {
+                DispatchQueue.main.async {
+                    guard self.handleDragID == handleDragID, self.autoScroller.isAutoScrolling else { return }
+                    updateFeaturedDrag(handleDragID, y: dragFingerY)
+                }
             }
         }
         .onDisappear {

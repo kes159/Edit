@@ -16,8 +16,7 @@ func safeReorderY(_ fingerY: CGFloat, offset: CGFloat) -> CGFloat? {
 
 enum ReorderMotion {
     static let lift = Animation.interactiveSpring(response: 0.22, dampingFraction: 0.92)
-    static let follow = Animation.linear(duration: 1.0 / 60.0)
-    static let shift = Animation.interactiveSpring(response: 0.30, dampingFraction: 0.94, blendDuration: 0.12)
+    static let shift = Animation.interactiveSpring(response: 0.22, dampingFraction: 0.96, blendDuration: 0.06)
     static let drop = Animation.interactiveSpring(response: 0.24, dampingFraction: 0.96)
 }
 
@@ -27,6 +26,7 @@ final class ReorderAutoScroller: NSObject {
     private var fingerY: CGFloat = 0
     private var bottomBoundary: CGFloat?
     private var scrollVelocity: CGFloat = 0
+    private(set) var isAutoScrolling = false
 
     func attach(_ scrollView: UIScrollView) { self.scrollView = scrollView }
 
@@ -47,6 +47,7 @@ final class ReorderAutoScroller: NSObject {
         displayLink = nil
         bottomBoundary = nil
         scrollVelocity = 0
+        isAutoScrolling = false
     }
 
     @objc private func scrollIfNeeded(_ link: CADisplayLink) {
@@ -59,7 +60,11 @@ final class ReorderAutoScroller: NSObject {
         else {
             let bottom = bottomBoundary ?? visibleBottom(of: scrollView)
             let start = max(edge + 40, bottom - 150)
-            guard fingerY > start else { scrollVelocity = 0; return }
+            guard fingerY > start else {
+                scrollVelocity = 0
+                isAutoScrolling = false
+                return
+            }
             strength = max(0.3, min(1, (fingerY - start) / max(1, bottom - start)))
         }
         let minY = -scrollView.adjustedContentInset.top
@@ -69,7 +74,11 @@ final class ReorderAutoScroller: NSObject {
         let targetVelocity = strength * speed
         scrollVelocity += (targetVelocity - scrollVelocity) * min(1, frameDuration * 18)
         let next = min(max(scrollView.contentOffset.y + scrollVelocity * frameDuration, minY), maxY)
-        guard next.isFinite, abs(next - scrollView.contentOffset.y) > 0.1 else { return }
+        guard next.isFinite, abs(next - scrollView.contentOffset.y) > 0.1 else {
+            isAutoScrolling = false
+            return
+        }
+        isAutoScrolling = true
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: next), animated: false)
     }
 
@@ -403,7 +412,6 @@ struct AppsScreen: View {
                 .scaleEffect(1.025)
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
                 .position(x: frame.midX, y: previewY)
-                .animation(ReorderMotion.follow, value: dragFingerY)
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .allowsHitTesting(false)
                 .zIndex(1)
@@ -413,8 +421,11 @@ struct AppsScreen: View {
         .coordinateSpace(name: "appsReorder")
         .onPreferenceChange(ReorderRowFrames.self) { frames in
             rowFrameCache.frames = frames
-            if let draggedAppID {
-                DispatchQueue.main.async { updateDrag(draggedAppID, y: dragFingerY) }
+            if let draggedAppID, autoScroller.isAutoScrolling {
+                DispatchQueue.main.async {
+                    guard self.draggedAppID == draggedAppID, self.autoScroller.isAutoScrolling else { return }
+                    updateDrag(draggedAppID, y: dragFingerY)
+                }
             }
         }
         .onDisappear {
