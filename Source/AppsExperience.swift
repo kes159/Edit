@@ -265,12 +265,13 @@ struct ReorderRowFrames: PreferenceKey {
 struct ImmediateReorderHandle: View {
     let coordinateSpace: String
     let label: String
+    var color: Color = .blue
     let onChange: (CGFloat) -> Void
     let onEnd: (CGFloat) -> Void
 
     var body: some View {
         Image(systemName: "line.3.horizontal")
-            .foregroundStyle(.blue)
+            .foregroundStyle(color)
             .frame(width: 24, height: 44)
             .contentShape(Rectangle())
             .accessibilityLabel(label)
@@ -336,7 +337,7 @@ struct AppsScreen: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
-    @State private var editing = false
+    @State private var deleting = false
     @State private var editorAppID: UUID?
     @State private var showingEditor = false
     @State private var lastDraggedAppID: UUID?
@@ -363,9 +364,10 @@ struct AppsScreen: View {
     }
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("앱").font(.system(size: 34, weight: .bold)).padding(.top, 14)
+                Text("앱").font(.system(size: 34, weight: .bold)).padding(.top, 14).id("appsTop")
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("검색", text: $search)
@@ -380,21 +382,21 @@ struct AppsScreen: View {
                         Spacer()
                         Button {
                             let app = SourceApp()
-                            store.source.apps.append(app)
+                            store.source.apps.insert(app, at: 0)
+                            search = ""
+                            scrollProxy.scrollTo("appsTop", anchor: .top)
                             openEditor(for: app.editorID)
                         } label: {
                             EditorListActionIcon(systemName: "plus.circle")
                         }
                         .accessibilityLabel("앱 추가")
-                        Button { editing.toggle() } label: {
-                            EditorListActionIcon(systemName: editing ? "checkmark.circle" : "square.and.pencil")
+                        Button { deleting.toggle() } label: {
+                            EditorListActionIcon(systemName: deleting ? "checkmark.circle" : "square.and.pencil")
                         }
-                        .accessibilityLabel(editing ? "편집 완료" : "앱 목록 편집")
+                        .accessibilityLabel(deleting ? "삭제 모드 완료" : "앱 삭제 모드")
                     }
                     (
-                        Text("앱을 길게 눌러 끌거나, ")
-                        + Text(Image(systemName: "square.and.pencil"))
-                        + Text(" 버튼을 누른 뒤 ")
+                        Text("앱을 길게 눌러 끌거나 왼쪽의 ")
                         + Text(Image(systemName: "line.3.horizontal"))
                         + Text(" 손잡이를 끌어 순서를 바꿀 수 있습니다.")
                     )
@@ -412,17 +414,18 @@ struct AppsScreen: View {
                     VStack(spacing: 10) {
                         ForEach(visibleApps, id: \.editorID) { app in
                             HStack(spacing: 7) {
-                                if editing {
+                                if deleting {
                                     Button(role: .destructive) { removeApp(app.editorID) } label: {
                                         Image(systemName: "minus.circle.fill")
                                     }
-                                    ImmediateReorderHandle(
-                                        coordinateSpace: "appsReorder",
-                                        label: "누른 채로 끌어 앱 순서 변경",
-                                        onChange: { y in updateDrag(app.editorID, y: y) },
-                                        onEnd: { y in endDrag(app.editorID, y: y) }
-                                    )
                                 }
+                                ImmediateReorderHandle(
+                                    coordinateSpace: "appsReorder",
+                                    label: "끌어서 앱 순서 변경",
+                                    color: .gray,
+                                    onChange: { y in updateDrag(app.editorID, y: y) },
+                                    onEnd: { y in endDrag(app.editorID, y: y) }
+                                )
                                 appCard(app)
                                     .overlay {
                                         GeometryReader { geometry in
@@ -498,6 +501,7 @@ struct AppsScreen: View {
             }
         }
         .keyboardDismissButton()
+        }
     }
 
     private func appCard(_ app: SourceApp) -> some View {
@@ -526,13 +530,13 @@ struct AppsScreen: View {
 
     private func dragPreview(_ app: SourceApp) -> some View {
         HStack(spacing: 7) {
-            if editing {
+            if deleting {
                 Image(systemName: "minus.circle.fill")
                     .foregroundStyle(.red)
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.blue)
-                    .frame(width: 24, height: 44)
             }
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.gray)
+                .frame(width: 24, height: 44)
             appCard(app)
         }
     }
@@ -705,9 +709,6 @@ struct AppEditor: View {
                                  isSavingImportedPreview: savingExtractedIcon)
                 AppInputField(title: "앱 이름", text: $app.name)
                 AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
-                AppInputField(title: "마켓플레이스 ID (선택 사항)", text: $app.marketplaceID)
-                Text("마켓플레이스 ID는 현재 JSON 내보내기 형식에서 제외됩니다.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, -18)
                 SourceTextField(title: "틴트 컬러", text: $app.tintColor) {
                     ColorPicker("틴트 컬러", selection: Binding(
                         get: { sourceTintColor(app.tintColor) },

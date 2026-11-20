@@ -57,7 +57,6 @@ struct SourceApp: Codable {
     var editorID = UUID()
     var name = ""
     var bundleIdentifier = ""
-    var marketplaceID = ""
     var developerName = ""
     var subtitle = ""
     var localizedDescription = ""
@@ -71,11 +70,11 @@ struct SourceApp: Codable {
     var appPermissions = AppPermissions()
     var patreon = Patreon()
 
-    enum CodingKeys: String, CodingKey { case name, bundleIdentifier, marketplaceID, developerName, subtitle, localizedDescription, iconURL, iconPreviewData, tintColor, category, screenshots, versions, appPermissions, patreon }
+    enum CodingKeys: String, CodingKey { case name, bundleIdentifier, developerName, subtitle, localizedDescription, iconURL, iconPreviewData, tintColor, category, screenshots, versions, appPermissions, patreon }
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        name = c.string(.name); bundleIdentifier = c.string(.bundleIdentifier); marketplaceID = c.string(.marketplaceID)
+        name = c.string(.name); bundleIdentifier = c.string(.bundleIdentifier)
         developerName = c.string(.developerName); subtitle = c.string(.subtitle)
         localizedDescription = c.string(.localizedDescription); iconURL = c.string(.iconURL)
         iconPreviewData = try? c.decodeIfPresent(Data.self, forKey: .iconPreviewData)
@@ -89,7 +88,7 @@ struct SourceApp: Codable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(name, forKey: .name); try c.encode(bundleIdentifier, forKey: .bundleIdentifier)
-        try c.nonempty(marketplaceID, forKey: .marketplaceID); try c.encode(developerName, forKey: .developerName)
+        try c.encode(developerName, forKey: .developerName)
         try c.nonempty(subtitle, forKey: .subtitle); try c.encode(localizedDescription, forKey: .localizedDescription)
         try c.encode(iconURL, forKey: .iconURL); try c.nonempty(tintColor, forKey: .tintColor)
         try c.encodeIfPresent(iconPreviewData, forKey: .iconPreviewData)

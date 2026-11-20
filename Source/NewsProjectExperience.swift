@@ -19,9 +19,10 @@ struct NewsScreen: View {
     }
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("뉴스").font(.title2.bold()).frame(maxWidth: .infinity).padding(.top, 10)
+                Text("뉴스").font(.title2.bold()).frame(maxWidth: .infinity).padding(.top, 10).id("newsTop")
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("검색", text: $search)
@@ -37,6 +38,8 @@ struct NewsScreen: View {
                         item.identifier = "news_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
                         item.tintColor = store.source.tintColor.isEmpty ? "#00b39e" : store.source.tintColor
                         store.source.news.insert(item, at: 0)
+                        search = ""
+                        scrollProxy.scrollTo("newsTop", anchor: .top)
                         newEditorIndex = 0
                         showingNewEditor = true
                     } label: { EditorListActionIcon(systemName: "plus.circle") }
@@ -76,6 +79,7 @@ struct NewsScreen: View {
             if let newEditorIndex { editor(at: newEditorIndex) }
         }
         .keyboardDismissButton()
+        }
     }
 
     @ViewBuilder private func editor(at index: Int) -> some View {
