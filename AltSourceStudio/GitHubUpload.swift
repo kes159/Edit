@@ -10,8 +10,8 @@ struct GitHubUploadSheet: View {
     @AppStorage("githubUploadPath") private var filePath = "NightFox.json"
     @State private var token = ""
     @State private var isUploading = false
-    @State private var resultMessage: String?
-    @State private var uploadedURL: URL?
+    @State private var uploadProgress: Double?
+    @State private var notice: UploadNotice?
 
     var body: some View {
         NavigationStack {
@@ -44,20 +44,11 @@ struct GitHubUploadSheet: View {
                     } label: {
                         HStack {
                             Spacer()
-                            if isUploading { ProgressView().padding(.trailing, 8) }
                             Text(isUploading ? "업로드 중…" : "JSON 업로드하기")
                             Spacer()
                         }
                     }
                     .disabled(isUploading || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                if let resultMessage {
-                    Section {
-                        Text(resultMessage)
-                        if let uploadedURL {
-                            Link("GitHub에서 파일 보기", destination: uploadedURL)
-                        }
-                    }
                 }
                 Section("사용 방법") {
                     Text("1. 저장소를 소유자/저장소 형식으로 입력하고 브랜치와 JSON 파일 경로를 지정하세요. GitHub 저장소 URL도 붙여넣을 수 있습니다.")
@@ -76,6 +67,31 @@ struct GitHubUploadSheet: View {
         .task { loadToken(for: repository) }
         .onChange(of: repository) { _, newValue in loadToken(for: newValue) }
         .keyboardDismissButton()
+        .overlay {
+            if let uploadProgress {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        Text("JSON 업로드 중…").font(.headline)
+                        JSONTransferProgressIndicator(progress: uploadProgress, accessibilityTitle: "JSON 업로드 진행률")
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+                .zIndex(1)
+            }
+        }
+        .alert(notice?.title ?? "알림", isPresented: Binding(
+            get: { notice != nil },
+            set: { if !$0 { notice = nil } }
+        )) {
+            if let url = notice?.url {
+                Button("GitHub에서 보기") { UIApplication.shared.open(url) }
+            }
+            Button("확인", role: .cancel) { notice = nil }
+        } message: {
+            Text(notice?.message ?? "")
+        }
     }
 
     private func loadToken(for repository: String) {
@@ -88,34 +104,53 @@ struct GitHubUploadSheet: View {
 
     private func upload() {
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        resultMessage = nil
-        uploadedURL = nil
+        notice = nil
         let target: GitHubUploadTarget
         let json: Data
         do {
             target = try GitHubUploadTarget(repository: repository, branch: branch, path: filePath)
         } catch {
-            resultMessage = error.localizedDescription
+            notice = UploadNotice(title: "업로드 실패", message: error.localizedDescription)
             return
         }
         do {
             json = try store.jsonDataForUpload()
         } catch {
-            resultMessage = "JSON을 만들지 못했습니다: \(error.localizedDescription)"
+            notice = UploadNotice(title: "업로드 실패", message: "JSON을 만들지 못했습니다: \(error.localizedDescription)")
             return
         }
+        let started = Date()
         isUploading = true
+        uploadProgress = 0
         Task {
             do {
                 try GitHubUploadToken.save(trimmedToken, repository: target.repositoryIdentifier)
-                uploadedURL = try await GitHubJSONUploader.upload(json, token: trimmedToken, target: target)
-                resultMessage = "\(target.path) 업로드를 완료했습니다."
+                let url = try await GitHubJSONUploader.upload(json, token: trimmedToken, target: target) { fraction in
+                    DispatchQueue.main.async {
+                        guard isUploading, let current = uploadProgress else { return }
+                        withAnimation(.linear(duration: 0.2)) {
+                            uploadProgress = max(current, min(0.95, fraction))
+                        }
+                    }
+                }
+                withAnimation(.linear(duration: 0.3)) { uploadProgress = 1 }
+                let remaining = max(0, 0.8 - Date().timeIntervalSince(started))
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                uploadProgress = nil
+                notice = UploadNotice(title: "JSON 업로드 완료", message: "\(target.path) 파일을 업로드했습니다.", url: url)
             } catch {
-                resultMessage = "업로드하지 못했습니다: \(error.localizedDescription)"
+                uploadProgress = nil
+                notice = UploadNotice(title: "업로드 실패", message: error.localizedDescription)
             }
             isUploading = false
         }
     }
+}
+
+private struct UploadNotice {
+    let title: String
+    let message: String
+    var url: URL? = nil
 }
 
 private struct GitHubUploadTarget {
@@ -204,6 +239,20 @@ private enum GitHubUploadToken {
     }
 }
 
+private final class GitHubUploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let onProgress: (Double) -> Void
+
+    init(onProgress: @escaping (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        onProgress(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
+    }
+}
+
 private enum GitHubJSONUploader {
     private struct ExistingFile: Decodable { let sha: String }
     private struct UpdatedFile: Decodable {
@@ -217,7 +266,8 @@ private enum GitHubJSONUploader {
         let branch: String
     }
 
-    static func upload(_ data: Data, token: String, target: GitHubUploadTarget) async throws -> URL {
+    static func upload(_ data: Data, token: String, target: GitHubUploadTarget,
+                       progress: @escaping (Double) -> Void) async throws -> URL {
         var components = URLComponents(url: target.apiURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "ref", value: target.branch)]
         var lookup = request(url: components.url!, token: token)
@@ -230,17 +280,21 @@ private enum GitHubJSONUploader {
             try check(lookupResponse, success: [200])
             existingSHA = try JSONDecoder().decode(ExistingFile.self, from: fileData).sha
         }
+        progress(0.05)
 
         var update = request(url: target.apiURL, token: token)
         update.httpMethod = "PUT"
-        update.httpBody = try JSONEncoder().encode(UpdateRequest(
+        let body = try JSONEncoder().encode(UpdateRequest(
             message: "Update \(target.path) from AltSource Studio",
             content: data.base64EncodedString(),
             sha: existingSHA,
             branch: target.branch
         ))
         update.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (responseData, updateResponse) = try await URLSession.shared.data(for: update)
+        let delegate = GitHubUploadProgressDelegate { fraction in
+            progress(0.05 + 0.90 * min(1, max(0, fraction)))
+        }
+        let (responseData, updateResponse) = try await URLSession.shared.upload(for: update, from: body, delegate: delegate)
         try check(updateResponse, success: [200, 201])
         return try JSONDecoder().decode(UpdatedFile.self, from: responseData).content.html_url
     }

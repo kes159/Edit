@@ -58,7 +58,7 @@ struct RootView: View {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
                         Text("JSON 불러오는 중…").font(.headline)
-                        JSONImportProgressIndicator(progress: importProgress)
+                        JSONTransferProgressIndicator(progress: importProgress, accessibilityTitle: "JSON 가져오기 진행률")
                     }
                     .padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
@@ -203,8 +203,9 @@ struct RootView: View {
     }
 }
 
-private struct JSONImportProgressIndicator: View, Animatable {
+struct JSONTransferProgressIndicator: View, Animatable {
     var progress: Double
+    let accessibilityTitle: String
     var animatableData: Double {
         get { progress }
         set { progress = newValue }
@@ -220,7 +221,7 @@ private struct JSONImportProgressIndicator: View, Animatable {
                 .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("JSON 가져오기 진행률")
+        .accessibilityLabel(accessibilityTitle)
         .accessibilityValue("\(Int((progress * 100).rounded()))퍼센트")
     }
 }
