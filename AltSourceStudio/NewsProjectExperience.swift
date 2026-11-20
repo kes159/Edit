@@ -59,7 +59,7 @@ struct NewsScreen: View {
                         NavigationLink {
                             editor(at: index)
                         } label: {
-                            NewsCard(news: store.source.news[index], apps: store.source.apps)
+                            NewsCard(news: store.source.news[index], number: index + 1, apps: store.source.apps)
                         }
                         .buttonStyle(.plain)
                     }
@@ -92,6 +92,7 @@ struct NewsScreen: View {
 
 private struct NewsCard: View {
     let news: AltNews
+    let number: Int
     let apps: [AltApp]
     private var app: AltApp? { apps.first { $0.bundleIdentifier == news.appID } }
     private var tint: Color { sourceTintColor(news.tintColor.isEmpty ? (app?.tintColor ?? "#00b39e") : news.tintColor) }
@@ -99,6 +100,8 @@ private struct NewsCard: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
+                    Text("뉴스 \(number)")
+                    Text("·")
                     if news.notify { Image(systemName: "bell.fill") }
                     Text(newsDisplayDate(news.date)).font(.caption)
                 }
