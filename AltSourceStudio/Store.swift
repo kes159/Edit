@@ -104,7 +104,7 @@ final class SourceStore: ObservableObject {
         if Set(newsIDs).count != newsIDs.count { result.append("뉴스 식별자가 중복됩니다.") }
         for (index, item) in source.news.enumerated() {
             if item.title.trimmed.isEmpty || item.identifier.trimmed.isEmpty || item.caption.trimmed.isEmpty {
-                result.append("뉴스 \(index + 1): 제목, 식별자, 요약이 필요합니다.")
+                result.append("뉴스 \(index + 1): 제목, 식별자, 뉴스 내용이 필요합니다.")
             }
         }
         return result

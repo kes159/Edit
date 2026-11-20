@@ -35,8 +35,8 @@ struct NewsScreen: View {
                         var item = AltNews()
                         item.identifier = "news_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
                         item.tintColor = store.source.tintColor.isEmpty ? "#00b39e" : store.source.tintColor
-                        store.source.news.append(item)
-                        newEditorIndex = store.source.news.count - 1
+                        store.source.news.insert(item, at: 0)
+                        newEditorIndex = 0
                         showingNewEditor = true
                     } label: { Image(systemName: "plus.circle").font(.title3) }
                     .accessibilityLabel("뉴스 추가")
@@ -168,7 +168,7 @@ private struct NewsEditor: View {
                     .padding(12)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 }
-                AppInputField(title: "요약", text: $news.caption)
+                AppInputField(title: "뉴스 내용", text: $news.caption)
                 AppInputField(title: "뉴스 URL (선택 사항)", text: $news.url, identifier: true)
                 Text("현재 JSON 저장 형식에서는 뉴스 URL이 제외됩니다.")
                     .font(.caption2).foregroundStyle(.secondary)
