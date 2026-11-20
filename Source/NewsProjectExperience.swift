@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 struct NewsScreen: View {
     @EnvironmentObject private var store: SourceStore
@@ -234,31 +235,215 @@ private struct NewsEditor: View {
 
 private struct NewsPosterField: View {
     @Binding var url: String
-    @State private var showingURL = false
+    @AppStorage("imgurClientID") private var imgurClientID = ""
+    @State private var showingImageOptions = false
+    @State private var showingPhotos = false
+    @State private var showingFiles = false
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var editingSheet: PosterEditingSheet?
+    @State private var pendingSource: PosterImageSource?
+    @State private var clientIDDraft = ""
+    @State private var urlDraft = ""
+    @State private var uploading = false
+    @State private var uploadError: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("포스터 이미지 (선택 사항)").font(.subheadline)
-            Button { showingURL = true } label: {
+            Button { showingImageOptions = true } label: {
                 ZStack {
                     if url.isEmpty {
                         Label("이미지 추가", systemImage: "photo").font(.headline)
                     } else {
                         RemoteImage(url: url, systemName: "photo")
                     }
+                    if uploading {
+                        Color.black.opacity(0.18)
+                        ProgressView("Imgur에 업로드 중…")
+                            .padding(12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
                 }
                 .frame(maxWidth: .infinity).frame(height: 130)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
             }
+            .disabled(uploading)
             if !url.isEmpty { Button("이미지 삭제", role: .destructive) { url = "" }.font(.caption) }
         }
-        .alert("포스터 이미지 URL", isPresented: $showingURL) {
-            TextField("https://example.com/image.png", text: $url)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("완료") {}
-            Button("취소", role: .cancel) {}
-        } message: { Text("JSON에 저장할 이미지 주소를 입력하세요.") }
+        .confirmationDialog("포스터 이미지 추가", isPresented: $showingImageOptions, titleVisibility: .visible) {
+            Button("사진 앱에서 선택") { choose(.photos) }
+            Button("파일 앱에서 선택") { choose(.files) }
+            Button("이미지 URL 입력") {
+                urlDraft = url
+                editingSheet = .url
+            }
+            Button("Imgur Client ID 설정") {
+                clientIDDraft = imgurClientID
+                editingSheet = .imgur
+            }
+        } message: {
+            Text("사진·파일에서 고른 이미지는 Imgur에 공개 업로드되며 생성된 URL이 JSON에 저장됩니다.")
+        }
+        .photosPicker(isPresented: $showingPhotos, selection: $selectedPhoto, matching: .images)
+        .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.image]) { result in
+            switch result {
+            case .success(let fileURL):
+                uploading = true
+                Task {
+                    do {
+                        let data = try await Task.detached(priority: .userInitiated) {
+                            let access = fileURL.startAccessingSecurityScopedResource()
+                            defer { if access { fileURL.stopAccessingSecurityScopedResource() } }
+                            return try Data(contentsOf: fileURL)
+                        }.value
+                        await uploadImage(data)
+                    } catch {
+                        uploading = false
+                        uploadError = "파일 앱에서 이미지를 읽지 못했습니다: \(error.localizedDescription)"
+                    }
+                }
+            case .failure(let error):
+                if (error as NSError).code != NSUserCancelledError {
+                    uploadError = "파일 앱에서 이미지를 선택하지 못했습니다: \(error.localizedDescription)"
+                }
+            }
+        }
+        .onChange(of: selectedPhoto) { _, photo in
+            guard let photo else { return }
+            uploading = true
+            Task {
+                do {
+                    guard let data = try await photo.loadTransferable(type: Data.self) else {
+                        uploading = false
+                        uploadError = "사진 앱에서 이미지를 읽지 못했습니다."
+                        selectedPhoto = nil
+                        return
+                    }
+                    await uploadImage(data)
+                } catch {
+                    uploading = false
+                    uploadError = "사진 앱에서 이미지를 읽지 못했습니다: \(error.localizedDescription)"
+                }
+                selectedPhoto = nil
+            }
+        }
+        .sheet(item: $editingSheet, onDismiss: {
+            if let pendingSource, !imgurClientID.isEmpty {
+                presentPicker(pendingSource)
+            }
+            pendingSource = nil
+        }) { sheet in
+            switch sheet {
+            case .url: urlEditingSheet
+            case .imgur: imgurEditingSheet
+            }
+        }
+        .alert("이미지를 추가하지 못했습니다", isPresented: Binding(
+            get: { uploadError != nil },
+            set: { if !$0 { uploadError = nil } }
+        )) {
+            Button("확인", role: .cancel) { uploadError = nil }
+        } message: {
+            Text(uploadError ?? "")
+        }
     }
+
+    private var urlEditingSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("https://i.imgur.com/image.png", text: $urlDraft)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                Text("JSON에 저장할 공개 이미지 주소를 입력하세요.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .navigationTitle("포스터 이미지 URL")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") { editingSheet = nil }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("적용") {
+                        url = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        editingSheet = nil
+                    }
+                    .disabled(!validImageURL(urlDraft))
+                }
+            }
+        }
+    }
+
+    private var imgurEditingSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Imgur Client ID", text: $clientIDDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Text("익명 업로드에 필요한 Client ID입니다. 한 번 입력하면 이 기기에 저장됩니다.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Link("Imgur에서 Client ID 만들기", destination: URL(string: "https://api.imgur.com/oauth2/addclient")!)
+            }
+            .navigationTitle("Imgur 설정")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") {
+                        pendingSource = nil
+                        editingSheet = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("저장") {
+                        imgurClientID = clientIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        editingSheet = nil
+                    }
+                    .disabled(clientIDDraft.trimmingCharacters(in: .whitespacesAndNewlines).range(
+                        of: "^[A-Za-z0-9]+$", options: .regularExpression
+                    ) == nil)
+                }
+            }
+        }
+    }
+
+    private func choose(_ source: PosterImageSource) {
+        guard !imgurClientID.isEmpty else {
+            pendingSource = source
+            clientIDDraft = ""
+            editingSheet = .imgur
+            return
+        }
+        presentPicker(source)
+    }
+
+    private func presentPicker(_ source: PosterImageSource) {
+        switch source {
+        case .photos: showingPhotos = true
+        case .files: showingFiles = true
+        }
+    }
+
+    private func uploadImage(_ data: Data) async {
+        uploading = true
+        defer { uploading = false }
+        do {
+            url = try await ImgurImageUploader.upload(data, clientID: imgurClientID).absoluteString
+        } catch {
+            uploadError = error.localizedDescription
+        }
+    }
+
+    private func validImageURL(_ text: String) -> Bool {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host != nil
+    }
+}
+
+private enum PosterImageSource { case photos, files }
+
+private enum PosterEditingSheet: String, Identifiable {
+    case url, imgur
+    var id: String { rawValue }
 }
 
 private struct AssociatedAppPicker: View {

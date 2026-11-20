@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import QuartzCore
+import Photos
 
 func validReorderFrame(_ frame: CGRect) -> Bool {
     frame.origin.x.isFinite && frame.origin.y.isFinite
@@ -666,6 +667,8 @@ struct AppEditor: View {
     @State private var editingVersions = false
     @State private var selectedFileName: String?
     @State private var scanningPackage = false
+    @State private var savingExtractedIcon = false
+    @State private var iconSaveNotice: IconSaveNotice?
     @State private var newPrivacyKey = ""
     @State private var newPrivacyValue = ""
     @State private var newEntitlement = ""
@@ -697,7 +700,9 @@ struct AppEditor: View {
             VStack(alignment: .leading, spacing: 26) {
                 SourceImageField(title: "아이콘", url: $app.iconURL, isHeader: false,
                                  importedPreview: app.iconPreviewData,
-                                 clearImportedPreview: { app.iconPreviewData = nil })
+                                 clearImportedPreview: { app.iconPreviewData = nil },
+                                 saveImportedPreview: saveExtractedIcon,
+                                 isSavingImportedPreview: savingExtractedIcon)
                 AppInputField(title: "앱 이름", text: $app.name)
                 AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
                 AppInputField(title: "마켓플레이스 ID (선택 사항)", text: $app.marketplaceID)
@@ -750,6 +755,18 @@ struct AppEditor: View {
                     .padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
                 }
+            }
+        }
+        .overlay {
+            if let iconSaveNotice {
+                Label(iconSaveNotice.message, systemImage: iconSaveNotice.symbol)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .shadow(radius: 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                    .allowsHitTesting(false)
             }
         }
         .sheet(item: $sheet) { selected in
@@ -1045,6 +1062,43 @@ struct AppEditor: View {
         sheet = .packagePicker
     }
 
+    private func saveExtractedIcon() {
+        guard let data = app.iconPreviewData, let image = UIImage(data: data) else {
+            showIconSaveNotice("저장할 아이콘이 없습니다.", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        savingExtractedIcon = true
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    savingExtractedIcon = false
+                    showIconSaveNotice("사진 추가 권한이 필요합니다.", symbol: "exclamationmark.triangle.fill")
+                }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, _ in
+                DispatchQueue.main.async {
+                    savingExtractedIcon = false
+                    showIconSaveNotice(
+                        success ? "사진 앱에 저장되었습니다." : "사진 앱에 저장하지 못했습니다.",
+                        symbol: success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                    )
+                }
+            }
+        }
+    }
+
+    private func showIconSaveNotice(_ message: String, symbol: String) {
+        let notice = IconSaveNotice(message: message, symbol: symbol)
+        withAnimation(.easeInOut(duration: 0.2)) { iconSaveNotice = notice }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            guard iconSaveNotice?.id == notice.id else { return }
+            withAnimation(.easeInOut(duration: 0.2)) { iconSaveNotice = nil }
+        }
+    }
+
     private func scanSelectedFile(_ url: URL) {
         sheet = nil
         scanningPackage = true
@@ -1073,6 +1127,12 @@ struct AppEditor: View {
             }
         }
     }
+}
+
+private struct IconSaveNotice: Identifiable {
+    let id = UUID()
+    let message: String
+    let symbol: String
 }
 
 private func appVersionDate(_ value: String) -> String {

@@ -672,20 +672,39 @@ struct SourceImageField: View {
     let isHeader: Bool
     var importedPreview: Data? = nil
     var clearImportedPreview: (() -> Void)? = nil
+    var saveImportedPreview: (() -> Void)? = nil
+    var isSavingImportedPreview = false
     @State private var selectedImage: PhotosPickerItem?
     @State private var localPreview: Data?
-    @State private var exportingIcon = false
+    @State private var urlPreviewImage: UIImage?
+    @State private var loadingURLPreview = false
 
     private var previewData: Data? { localPreview ?? importedPreview }
+    private var previewURL: URL? {
+        let text = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let candidate = URL(string: text),
+              ["http", "https"].contains(candidate.scheme?.lowercased() ?? ""),
+              candidate.host != nil else { return nil }
+        return candidate
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 14) {
                 Group {
-                    if url.isEmpty, let previewData, let image = UIImage(data: previewData) {
+                    if let urlPreviewImage, !url.isEmpty {
+                        Image(uiImage: urlPreviewImage).resizable().scaledToFill()
+                    } else if url.isEmpty, let previewData, let image = UIImage(data: previewData) {
                         Image(uiImage: image).resizable().scaledToFill()
                     } else {
-                        RemoteImage(url: url, systemName: "photo", localData: previewData)
+                        Rectangle().fill(Color(uiColor: .secondarySystemBackground))
+                            .overlay {
+                                if loadingURLPreview {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "photo").foregroundStyle(.secondary)
+                                }
+                            }
                     }
                 }
                 .frame(width: isHeader ? 96 : 70, height: isHeader ? 76 : 70)
@@ -717,8 +736,11 @@ struct SourceImageField: View {
                 }
             }
             if previewData != nil {
-                if importedPreview != nil {
-                    Button("추출한 아이콘 저장") { exportingIcon = true }
+                if importedPreview != nil, let saveImportedPreview {
+                    Button(isSavingImportedPreview ? "사진 앱에 저장 중…" : "추출한 아이콘 저장") {
+                        saveImportedPreview()
+                    }
+                        .disabled(isSavingImportedPreview)
                         .font(.subheadline)
                 }
                 Text("아이콘 파일은 미리보기용입니다. JSON에는 공개 이미지 URL이 필요합니다.")
@@ -726,14 +748,32 @@ struct SourceImageField: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .fileExporter(isPresented: $exportingIcon,
-                      document: importedPreview.map(PNGFile.init),
-                      contentType: .png,
-                      defaultFilename: "AppIcon") { _ in }
         .onChange(of: selectedImage) { _, item in
             Task { localPreview = try? await item?.loadTransferable(type: Data.self) }
         }
         .onChange(of: url) { _, _ in localPreview = nil }
+        .task(id: url) { await loadURLPreview() }
+    }
+
+    private func loadURLPreview() async {
+        urlPreviewImage = nil
+        guard let previewURL else {
+            loadingURLPreview = false
+            return
+        }
+        loadingURLPreview = true
+        defer {
+            if self.previewURL == previewURL { loadingURLPreview = false }
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+            let (data, response) = try await URLSession.shared.data(from: previewURL)
+            guard !Task.isCancelled, self.previewURL == previewURL,
+                  data.count <= 10_000_000,
+                  (response as? HTTPURLResponse).map({ 200...299 ~= $0.statusCode }) ?? false,
+                  let image = UIImage(data: data) else { return }
+            urlPreviewImage = image
+        } catch { }
     }
 }
 

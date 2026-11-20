@@ -10,7 +10,7 @@
   A00000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000012, A00000000000000000000013,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
   A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000014, A00000000000000000000005,); sourceTree = "<group>"; };
   A00000000000000000000005 = {isa = PBXGroup; children = (A00000000000000000000009,); name = Products; sourceTree = "<group>"; };
-  A00000000000000000000014 = {isa = PBXGroup; children = (A00000000000000000000015, A00000000000000000000016, A00000000000000000000017, A00000000000000000000023, A00000000000000000000025, A00000000000000000000027, A00000000000000000000034, A00000000000000000000037, A00000000000000000000029, A00000000000000000000021,); path = Source; sourceTree = "<group>"; };
+  A00000000000000000000014 = {isa = PBXGroup; children = (A00000000000000000000015, A00000000000000000000016, A00000000000000000000017, A00000000000000000000023, A00000000000000000000025, A00000000000000000000027, A00000000000000000000034, A00000000000000000000037, A00000000000000000000039, A00000000000000000000029, A00000000000000000000021,); path = Source; sourceTree = "<group>"; };
   A00000000000000000000009 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Source.app; sourceTree = BUILT_PRODUCTS_DIR; };
   A00000000000000000000015 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEditorApp.swift; sourceTree = "<group>"; };
   A00000000000000000000016 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -21,6 +21,7 @@
   A00000000000000000000029 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
   A00000000000000000000034 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPackageScanner.swift; sourceTree = "<group>"; };
   A00000000000000000000037 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubUpload.swift; sourceTree = "<group>"; };
+  A00000000000000000000039 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImgurImageUploader.swift; sourceTree = "<group>"; };
   A00000000000000000000021 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
   A00000000000000000000018 = {isa = PBXBuildFile; fileRef = A00000000000000000000015; };
   A00000000000000000000019 = {isa = PBXBuildFile; fileRef = A00000000000000000000016; };
@@ -31,8 +32,9 @@
   A00000000000000000000031 = {isa = PBXBuildFile; productRef = A00000000000000000000032; };
   A00000000000000000000035 = {isa = PBXBuildFile; fileRef = A00000000000000000000034; };
   A00000000000000000000038 = {isa = PBXBuildFile; fileRef = A00000000000000000000037; };
+  A00000000000000000000040 = {isa = PBXBuildFile; fileRef = A00000000000000000000039; };
   A00000000000000000000022 = {isa = PBXBuildFile; fileRef = A00000000000000000000021; };
-  A00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000018, A00000000000000000000019, A00000000000000000000020, A00000000000000000000024, A00000000000000000000026, A00000000000000000000028, A00000000000000000000035, A00000000000000000000038,); runOnlyForDeploymentPostprocessing = 0; };
+  A00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000018, A00000000000000000000019, A00000000000000000000020, A00000000000000000000024, A00000000000000000000026, A00000000000000000000028, A00000000000000000000035, A00000000000000000000038, A00000000000000000000040,); runOnlyForDeploymentPostprocessing = 0; };
   A00000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000022,); runOnlyForDeploymentPostprocessing = 0; };
   A00000000000000000000033 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000031,); runOnlyForDeploymentPostprocessing = 0; };
   A00000000000000000000030 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/weichsel/ZIPFoundation.git"; requirement = {kind = exactVersion; version = 0.9.20; }; };
