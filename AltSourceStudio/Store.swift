@@ -36,6 +36,10 @@ final class SourceStore: ObservableObject {
         (try? SideStoreJSONFormatter.encode(source, preserving: importedJSON)) ?? Data("{}".utf8)
     }
 
+    func jsonDataForUpload() throws -> Data {
+        try SideStoreJSONFormatter.encode(source, preserving: importedJSON)
+    }
+
     var jsonText: String { String(data: jsonData(), encoding: .utf8) ?? "{}" }
 
     @discardableResult

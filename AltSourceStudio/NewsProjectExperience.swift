@@ -326,6 +326,7 @@ private func newsDisplayDate(_ value: String) -> String {
 }
 
 struct ProjectScreen: View {
+    @State private var showingGitHubUpload = false
     let newAction: () -> Void
     let importAction: () -> Void
     let exportAction: () -> Void
@@ -345,6 +346,7 @@ struct ProjectScreen: View {
                     ("folder.badge.plus", "소스 새로 만들기", newAction),
                     ("folder", "JSON 불러오기", importAction),
                     ("square.and.arrow.up", "JSON 내보내기", exportAction),
+                    ("arrow.up.circle", "GitHub에 업로드하기", { showingGitHubUpload = true }),
                     ("chevron.left.forwardslash.chevron.right", "소스코드 보기", viewCodeAction)
                 ])
             }
@@ -352,6 +354,7 @@ struct ProjectScreen: View {
             .padding(.bottom, 30)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingGitHubUpload) { GitHubUploadSheet() }
     }
 
     private func projectGroup(_ title: String, rows: [(String, String, () -> Void)]) -> some View {
