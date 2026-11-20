@@ -1,0 +1,46 @@
+name: Delete past workflow runs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  delete-past-runs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete completed runs from every workflow
+        uses: actions/github-script@v9
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+              owner,
+              repo,
+              per_page: 100
+            });
+            const pastRuns = runs.filter(run =>
+              run.id !== context.runId && run.status === 'completed'
+            );
+
+            let deleted = 0;
+            const failures = [];
+            for (const run of pastRuns) {
+              try {
+                await github.rest.actions.deleteWorkflowRun({ owner, repo, run_id: run.id });
+                deleted += 1;
+              } catch (error) {
+                failures.push(`${run.id}: ${error.message}`);
+                core.warning(`Could not delete run ${run.id}: ${error.message}`);
+              }
+            }
+
+            await core.summary
+              .addHeading('Past workflow runs')
+              .addRaw(`Deleted ${deleted} completed run(s). This cleanup run remains visible.`)
+              .write();
+            if (failures.length) {
+              core.setFailed(`Failed to delete ${failures.length} run(s): ${failures.join('; ')}`);
+            }
