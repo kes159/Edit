@@ -1,6 +1,6 @@
 # Source Editor
 
-SideStore용 소스 JSON을 만들고 관리하는 SwiftUI iOS 앱입니다. JSON 저장 시 NightFox_Repository의 소스 변환 규칙에 맞춰 출력합니다.
+SideStore용 소스 JSON을 만들고 관리하는 SwiftUI iOS 앱입니다. JSON 저장 시 소스 변환 규칙에 맞춰 출력합니다.
 
 ## 기능
 
