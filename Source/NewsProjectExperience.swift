@@ -2,6 +2,12 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
+private func linkedApp(for news: SourceNews, in apps: [SourceApp]) -> SourceApp? {
+    let appID = news.appID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !appID.isEmpty else { return nil }
+    return apps.first { $0.bundleIdentifier == appID }
+}
+
 struct NewsScreen: View {
     @EnvironmentObject private var store: SourceStore
     let viewCodeAction: () -> Void
@@ -13,7 +19,7 @@ struct NewsScreen: View {
     private var indices: [Int] {
         store.source.news.indices.filter { index in
             let item = store.source.news[index]
-            let appName = store.source.apps.first { $0.bundleIdentifier == item.appID }?.name ?? ""
+            let appName = linkedApp(for: item, in: store.source.apps)?.name ?? ""
             return search.isEmpty || [item.title, item.caption, appName].contains { $0.localizedCaseInsensitiveContains(search) }
         }
     }
@@ -99,7 +105,7 @@ private struct NewsCard: View {
     let news: SourceNews
     let number: Int
     let apps: [SourceApp]
-    private var app: SourceApp? { apps.first { $0.bundleIdentifier == news.appID } }
+    private var app: SourceApp? { linkedApp(for: news, in: apps) }
     private var tint: Color { sourceTintColor(news.tintColor.isEmpty ? (app?.tintColor ?? "#00b39e") : news.tintColor) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -196,7 +202,7 @@ private struct NewsEditor: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("연결된 앱 (선택 사항)").font(.subheadline)
-                    if let app = apps.first(where: { $0.bundleIdentifier == news.appID }) {
+                    if let app = linkedApp(for: news, in: apps) {
                         AssociatedAppCard(app: app, actionTitle: "연결 해제") { news.appID = "" }
                     } else {
                         Button { choosingApp = true } label: {
@@ -459,7 +465,11 @@ private struct AssociatedAppPicker: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    ForEach(apps.indices.filter { search.isEmpty || apps[$0].name.localizedCaseInsensitiveContains(search) || apps[$0].bundleIdentifier.localizedCaseInsensitiveContains(search) }, id: \.self) { index in
+                    ForEach(apps.indices.filter { index in
+                        guard !apps[index].bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+                        return search.isEmpty || apps[index].name.localizedCaseInsensitiveContains(search)
+                            || apps[index].bundleIdentifier.localizedCaseInsensitiveContains(search)
+                    }, id: \.self) { index in
                         AssociatedAppCard(app: apps[index], actionTitle: "연결") { select(apps[index]) }
                     }
                 }.padding(16)
