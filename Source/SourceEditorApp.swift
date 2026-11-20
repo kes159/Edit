@@ -416,8 +416,10 @@ struct SourceEditor: View {
                     .font(.system(size: 34, weight: .bold))
                     .padding(.bottom, 8)
 
-                SourceImageField(title: "헤더 이미지", url: $store.source.headerURL, isHeader: true)
-                SourceImageField(title: "아이콘", url: $store.source.iconURL, isHeader: false)
+                SourceImageField(title: "헤더 이미지", url: $store.source.headerURL,
+                                 isHeader: true, confirmDeletion: true)
+                SourceImageField(title: "아이콘", url: $store.source.iconURL,
+                                 isHeader: false, confirmDeletion: true)
 
                 SourceTextField(title: "틴트 컬러", text: $store.source.tintColor) {
                     ColorPicker("틴트 컬러", selection: Binding(
@@ -670,6 +672,7 @@ struct SourceImageField: View {
     let title: String
     @Binding var url: String
     let isHeader: Bool
+    var confirmDeletion = false
     var importedPreview: Data? = nil
     var clearImportedPreview: (() -> Void)? = nil
     var saveImportedPreview: (() -> Void)? = nil
@@ -678,6 +681,7 @@ struct SourceImageField: View {
     @State private var localPreview: Data?
     @State private var urlPreviewImage: UIImage?
     @State private var loadingURLPreview = false
+    @State private var showingDeleteAlert = false
 
     private var previewData: Data? { localPreview ?? importedPreview }
     private var previewURL: URL? {
@@ -724,10 +728,8 @@ struct SourceImageField: View {
                         Spacer()
                         if !url.isEmpty || previewData != nil {
                             Button("삭제", role: .destructive) {
-                                url = ""
-                                localPreview = nil
-                                selectedImage = nil
-                                clearImportedPreview?()
+                                if confirmDeletion { showingDeleteAlert = true }
+                                else { deleteImage() }
                             }
                             .foregroundStyle(.red)
                         }
@@ -751,8 +753,20 @@ struct SourceImageField: View {
         .onChange(of: selectedImage) { _, item in
             Task { localPreview = try? await item?.loadTransferable(type: Data.self) }
         }
+        .alert(isHeader ? "헤더 이미지를 삭제하시겠습니까?" : "아이콘을 삭제하시겠습니까?",
+               isPresented: $showingDeleteAlert) {
+            Button("예", role: .destructive) { deleteImage() }
+            Button("아니오", role: .cancel) {}
+        }
         .onChange(of: url) { _, _ in localPreview = nil }
         .task(id: url) { await loadURLPreview() }
+    }
+
+    private func deleteImage() {
+        url = ""
+        localPreview = nil
+        selectedImage = nil
+        clearImportedPreview?()
     }
 
     private func loadURLPreview() async {

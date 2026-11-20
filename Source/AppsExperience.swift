@@ -839,16 +839,6 @@ struct AppEditor: View {
                 Image(systemName: "trash")
             }
             .accessibilityLabel("앱 삭제")
-            Menu {
-                Button("앱 복제", systemImage: "plus.square.on.square") {
-                    var copy = app
-                    copy.editorID = UUID()
-                    copy.name += " 복사본"
-                    copy.bundleIdentifier = ""
-                    store.source.apps.append(copy)
-                }
-            } label: { Image(systemName: "ellipsis") }
-                .accessibilityLabel("더 보기")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
