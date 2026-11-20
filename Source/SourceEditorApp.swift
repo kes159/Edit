@@ -1117,12 +1117,10 @@ struct JSONScreen: View {
                     }
                     .foregroundStyle(.orange)
                 }
-                Text(store.jsonText)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                SelectableJSONTextView(text: store.jsonText)
+                    .frame(height: UIDevice.current.userInterfaceIdiom == .pad ? 680 : 520)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .padding()
         }
@@ -1143,6 +1141,49 @@ struct JSONScreen: View {
             .accessibilityLabel("GitHub에 업로드하기")
         }
         .font(.subheadline)
+    }
+}
+
+private struct SelectableJSONTextView: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.isEditable = false
+        view.isSelectable = true
+        view.isScrollEnabled = true
+        view.backgroundColor = .clear
+        view.textColor = .label
+        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        view.textContainer.lineFragmentPadding = 0
+        view.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: .monospacedSystemFont(ofSize: 12, weight: .regular)
+        )
+        view.adjustsFontForContentSizeCategory = true
+        view.accessibilityLabel = "JSON 미리보기 내용"
+        view.text = text
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        if view.text != text { view.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
+                      suggestedActions: [UIMenuElement]) -> UIMenu? {
+            let selectAll = UIAction(title: "전체 선택") { [weak textView] _ in
+                guard let textView else { return }
+                textView.selectedRange = NSRange(location: 0, length: textView.text.utf16.count)
+            }
+            let copyAll = UIAction(title: "전체 복사", image: UIImage(systemName: "doc.on.doc")) { [weak textView] _ in
+                UIPasteboard.general.string = textView?.text
+            }
+            return UIMenu(children: suggestedActions + [selectAll, copyAll])
+        }
     }
 }
 
