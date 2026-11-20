@@ -291,8 +291,29 @@ extension View {
     }
 }
 
-private final class ReorderFrameCache {
+final class ReorderFrameCache {
     var frames: [String: CGRect] = [:]
+}
+
+final class ReorderDragPosition: ObservableObject {
+    @Published var fingerY: CGFloat = 0
+
+    func update(to y: CGFloat) {
+        if abs(fingerY - y) > 0.25 { fingerY = y }
+    }
+}
+
+struct ReorderFloatingPreview<Content: View>: View {
+    @ObservedObject var position: ReorderDragPosition
+    let frame: CGRect
+    let touchOffset: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if let y = safeReorderY(position.fingerY, offset: touchOffset) {
+            content().position(x: frame.midX, y: y)
+        }
+    }
 }
 
 struct AppsScreen: View {
@@ -307,7 +328,7 @@ struct AppsScreen: View {
     @State private var dragFrames: [String: CGRect] = [:]
     @State private var autoScroller = ReorderAutoScroller()
     @State private var draggedAppID: UUID?
-    @State private var dragFingerY: CGFloat = 0
+    @State private var dragPosition = ReorderDragPosition()
     @State private var dragTouchOffset: CGFloat = 0
 
     private var visibleApps: [SourceApp] {
@@ -405,13 +426,13 @@ struct AppsScreen: View {
         if let draggedAppID,
            let app = store.source.apps.first(where: { $0.editorID == draggedAppID }),
            let frame = dragFrames["app:\(draggedAppID.uuidString)"],
-           validReorderFrame(frame),
-           let previewY = safeReorderY(dragFingerY, offset: dragTouchOffset) {
-            dragPreview(app)
-                .frame(width: frame.width)
-                .scaleEffect(1.025)
-                .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
-                .position(x: frame.midX, y: previewY)
+           validReorderFrame(frame) {
+            ReorderFloatingPreview(position: dragPosition, frame: frame, touchOffset: dragTouchOffset) {
+                dragPreview(app)
+                    .frame(width: frame.width)
+                    .scaleEffect(1.025)
+                    .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
+            }
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .allowsHitTesting(false)
                 .zIndex(1)
@@ -424,7 +445,7 @@ struct AppsScreen: View {
             if let draggedAppID, autoScroller.isAutoScrolling {
                 DispatchQueue.main.async {
                     guard self.draggedAppID == draggedAppID, self.autoScroller.isAutoScrolling else { return }
-                    updateDrag(draggedAppID, y: dragFingerY)
+                    updateDrag(draggedAppID, y: dragPosition.fingerY)
                 }
             }
         }
@@ -510,12 +531,12 @@ struct AppsScreen: View {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames[key] else { return }
             dragTouchOffset = y - frame.midY
-            dragFingerY = y
+            dragPosition.update(to: y)
             withAnimation(ReorderMotion.lift) { draggedAppID = id }
             autoScroller.start(at: y)
         }
         guard draggedAppID == id else { return }
-        dragFingerY = y
+        dragPosition.update(to: y)
         autoScroller.update(to: y)
         guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
         let slots = rowFrameCache.frames.filter {

@@ -377,11 +377,11 @@ struct SourceEditor: View {
     let viewCodeAction: () -> Void
     let addAppAction: () -> Void
     @State private var searchText = ""
-    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var rowFrameCache = ReorderFrameCache()
     @State private var dragFrames: [String: CGRect] = [:]
     @State private var autoScroller = ReorderAutoScroller()
     @State private var handleDragID: String?
-    @State private var dragFingerY: CGFloat = 0
+    @State private var dragPosition = ReorderDragPosition()
     @State private var dragTouchOffset: CGFloat = 0
 
     private var visibleApps: [SourceApp] {
@@ -446,13 +446,13 @@ struct SourceEditor: View {
         if let handleDragID,
            let app = store.source.apps.first(where: { $0.bundleIdentifier == handleDragID }),
            let frame = dragFrames["featured:\(handleDragID)"],
-           validReorderFrame(frame),
-           let previewY = safeReorderY(dragFingerY, offset: dragTouchOffset) {
-            featuredRowContent(app, selected: true)
-                .frame(width: frame.width)
-                .scaleEffect(1.025)
-                .shadow(color: .black.opacity(0.2), radius: 10, y: 6)
-                .position(x: frame.midX, y: previewY)
+           validReorderFrame(frame) {
+            ReorderFloatingPreview(position: dragPosition, frame: frame, touchOffset: dragTouchOffset) {
+                featuredRowContent(app, selected: true)
+                    .frame(width: frame.width)
+                    .scaleEffect(1.025)
+                    .shadow(color: .black.opacity(0.2), radius: 10, y: 6)
+            }
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .allowsHitTesting(false)
                 .zIndex(1)
@@ -461,11 +461,11 @@ struct SourceEditor: View {
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "featuredReorder")
         .onPreferenceChange(ReorderRowFrames.self) { frames in
-            rowFrames = frames
+            rowFrameCache.frames = frames
             if let handleDragID, autoScroller.isAutoScrolling {
                 DispatchQueue.main.async {
                     guard self.handleDragID == handleDragID, self.autoScroller.isAutoScrolling else { return }
-                    updateFeaturedDrag(handleDragID, y: dragFingerY)
+                    updateFeaturedDrag(handleDragID, y: dragPosition.fingerY)
                 }
             }
         }
@@ -604,18 +604,18 @@ struct SourceEditor: View {
     private func updateFeaturedDrag(_ id: String, y: CGFloat) {
         guard y.isFinite else { return }
         if handleDragID == nil {
-            dragFrames = rowFrames.filter { validReorderFrame($0.value) }
+            dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames["featured:\(id)"] else { return }
             dragTouchOffset = y - frame.midY
-            dragFingerY = y
+            dragPosition.update(to: y)
             withAnimation(ReorderMotion.lift) { handleDragID = id }
             autoScroller.start(at: y)
         }
         guard handleDragID == id else { return }
-        dragFingerY = y
+        dragPosition.update(to: y)
         autoScroller.update(to: y)
         guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
-        let slots = rowFrames.filter {
+        let slots = rowFrameCache.frames.filter {
             $0.key.hasPrefix("featured:") && validReorderFrame($0.value)
                 && store.source.featuredApps.contains(String($0.key.dropFirst(9)))
         }.sorted { $0.value.midY < $1.value.midY }
