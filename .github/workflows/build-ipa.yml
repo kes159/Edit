@@ -1,4 +1,4 @@
-name: Build AltStudio.app IPA
+name: Build Source Editor IPA
 
 on:
   push:

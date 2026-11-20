@@ -11,7 +11,7 @@ private extension KeyedEncodingContainer {
     }
 }
 
-struct AltSource: Codable {
+struct Source: Codable {
     var name = "My Source"
     var identifier = ""
     var subtitle = ""
@@ -23,8 +23,8 @@ struct AltSource: Codable {
     var patreonURL = ""
     var tintColor = ""
     var featuredApps: [String] = []
-    var apps: [AltApp] = []
-    var news: [AltNews] = []
+    var apps: [SourceApp] = []
+    var news: [SourceNews] = []
 
     enum CodingKeys: String, CodingKey {
         case name, identifier, subtitle, iconURL, headerURL, website, fediUsername, patreonURL, tintColor, featuredApps, apps, news
@@ -52,7 +52,7 @@ struct AltSource: Codable {
     }
 }
 
-struct AltApp: Codable {
+struct SourceApp: Codable {
     // Stable identity for animated row moves; intentionally omitted from source JSON.
     var editorID = UUID()
     var name = ""
@@ -62,12 +62,12 @@ struct AltApp: Codable {
     var subtitle = ""
     var localizedDescription = ""
     var iconURL = ""
-    // Kept in the local draft for preview/export. AltSource JSON still requires a hosted iconURL.
+    // Kept in the local draft for preview/export. Source JSON still requires a hosted iconURL.
     var iconPreviewData: Data?
     var tintColor = ""
     var category = "other"
     var screenshots = AppScreenshots()
-    var versions: [AltVersion] = []
+    var versions: [SourceVersion] = []
     var appPermissions = AppPermissions()
     var patreon = Patreon()
 
@@ -146,7 +146,7 @@ struct AppScreenshots: Codable {
     }
 }
 
-struct AltVersion: Codable {
+struct SourceVersion: Codable {
     var version = ""
     var buildVersion = ""
     var marketingVersion = ""
@@ -204,7 +204,7 @@ struct Patreon: Codable {
     }
 }
 
-struct AltNews: Codable {
+struct SourceNews: Codable {
     var title = ""
     var identifier = ""
     var caption = ""

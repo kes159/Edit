@@ -32,7 +32,7 @@ struct NewsScreen: View {
                     Text("전체 \(store.source.news.count)개").font(.headline)
                     Spacer()
                     Button {
-                        var item = AltNews()
+                        var item = SourceNews()
                         item.identifier = "news_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10).lowercased()
                         item.tintColor = store.source.tintColor.isEmpty ? "#00b39e" : store.source.tintColor
                         store.source.news.insert(item, at: 0)
@@ -91,10 +91,10 @@ struct NewsScreen: View {
 }
 
 private struct NewsCard: View {
-    let news: AltNews
+    let news: SourceNews
     let number: Int
-    let apps: [AltApp]
-    private var app: AltApp? { apps.first { $0.bundleIdentifier == news.appID } }
+    let apps: [SourceApp]
+    private var app: SourceApp? { apps.first { $0.bundleIdentifier == news.appID } }
     private var tint: Color { sourceTintColor(news.tintColor.isEmpty ? (app?.tintColor ?? "#00b39e") : news.tintColor) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -134,8 +134,8 @@ private struct NewsCard: View {
 
 private struct NewsEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var news: AltNews
-    let apps: [AltApp]
+    @Binding var news: SourceNews
+    let apps: [SourceApp]
     let viewCodeAction: () -> Void
     let deleteAction: () -> Void
     @State private var choosingApp = false
@@ -262,8 +262,8 @@ private struct NewsPosterField: View {
 
 private struct AssociatedAppPicker: View {
     @Environment(\.dismiss) private var dismiss
-    let apps: [AltApp]
-    let select: (AltApp) -> Void
+    let apps: [SourceApp]
+    let select: (SourceApp) -> Void
     @State private var search = ""
     var body: some View {
         NavigationStack {
@@ -283,7 +283,7 @@ private struct AssociatedAppPicker: View {
 }
 
 private struct AssociatedAppCard: View {
-    let app: AltApp
+    let app: SourceApp
     let actionTitle: String
     let action: () -> Void
     private var tint: Color { sourceTintColor(app.tintColor) }

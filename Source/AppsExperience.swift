@@ -289,7 +289,7 @@ struct AppsScreen: View {
     @State private var dragFingerY: CGFloat = 0
     @State private var dragTouchOffset: CGFloat = 0
 
-    private var visibleApps: [AltApp] {
+    private var visibleApps: [SourceApp] {
         store.source.apps.filter { app in
             return search.isEmpty || app.name.localizedCaseInsensitiveContains(search)
                 || app.bundleIdentifier.localizedCaseInsensitiveContains(search)
@@ -312,7 +312,7 @@ struct AppsScreen: View {
                     Text("전체 \(store.source.apps.count)개").font(.headline)
                     Spacer()
                     Button {
-                        let app = AltApp()
+                        let app = SourceApp()
                         store.source.apps.append(app)
                         openEditor(for: app.editorID)
                     } label: {
@@ -414,7 +414,7 @@ struct AppsScreen: View {
         .keyboardDismissButton()
     }
 
-    private func appCard(_ app: AltApp) -> some View {
+    private func appCard(_ app: SourceApp) -> some View {
         let tint = sourceTintColor(app.tintColor)
         return HStack(spacing: 14) {
             RemoteImage(url: app.iconURL, systemName: "app", localData: app.iconPreviewData)
@@ -438,7 +438,7 @@ struct AppsScreen: View {
         .background(tint.opacity(0.23), in: RoundedRectangle(cornerRadius: 18))
     }
 
-    private func dragPreview(_ app: AltApp) -> some View {
+    private func dragPreview(_ app: SourceApp) -> some View {
         HStack(spacing: 7) {
             if editing {
                 Image(systemName: "minus.circle.fill")
@@ -520,7 +520,7 @@ private enum AppSheet: String, Identifiable {
 
 private enum AppPackageType {
     static let ipa = UTType(filenameExtension: "ipa") ?? UTType(importedAs: "com.apple.itunes.ipa", conformingTo: .data)
-    static let adp = UTType(importedAs: "app.altstudio.sourcecreator.adp", conformingTo: .data)
+    static let adp = UTType(importedAs: "app.sourceeditor.adp", conformingTo: .data)
     static let allowed = [ipa, adp]
 }
 
@@ -559,9 +559,9 @@ private struct AppPackagePicker: UIViewControllerRepresentable {
 
 struct AppEditor: View {
     @EnvironmentObject private var store: SourceStore
-    @Binding var app: AltApp
+    @Binding var app: SourceApp
     @State private var sheet: AppSheet?
-    @State private var versionDraft = AltVersion()
+    @State private var versionDraft = SourceVersion()
     @State private var versionSearch = ""
     @State private var showAllVersions = false
     @State private var showAllPrivacy = false
@@ -742,7 +742,7 @@ struct AppEditor: View {
                 Spacer()
                 Menu {
                     Button("직접 추가", systemImage: "pencil") {
-                        versionDraft = AltVersion()
+                        versionDraft = SourceVersion()
                         selectedFileName = nil
                         sheet = .addVersion
                     }
@@ -962,7 +962,7 @@ struct AppEditor: View {
                         app.iconPreviewData = icon
                         app.iconURL = ""
                     }
-                    versionDraft = AltVersion()
+                    versionDraft = SourceVersion()
                     versionDraft.version = package.version
                     versionDraft.buildVersion = package.buildVersion
                     versionDraft.minOSVersion = package.minOSVersion
@@ -1048,7 +1048,7 @@ struct AppInputField: View {
 
 private struct AddVersionSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var version: AltVersion
+    @Binding var version: SourceVersion
     let fileName: String?
     let addAction: () -> Void
     @State private var sizeText = ""

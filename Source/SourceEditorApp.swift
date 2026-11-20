@@ -3,7 +3,7 @@ import PhotosUI
 import UniformTypeIdentifiers
 
 @main
-struct AltSourceStudioApp: App {
+struct SourceEditorApp: App {
     @StateObject private var store = SourceStore()
     var body: some Scene { WindowGroup { RootView().environmentObject(store) } }
 }
@@ -67,10 +67,10 @@ struct RootView: View {
             }
         }
         .fileExporter(isPresented: $exporting, document: exportDocument, contentType: .json,
-                      defaultFilename: "AltSource.json") { result in
+                      defaultFilename: "Source.json") { result in
             if case .failure(let error) = result { store.message = error.localizedDescription }
         }
-        .alert("AltSource Studio", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
+        .alert("Source Editor", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("확인", role: .cancel) { store.message = nil }
         } message: { Text(store.message ?? "") }
         .confirmationDialog("현재 작업을 지우고 새 프로젝트를 만들까요?", isPresented: $confirmingNewProject) {
@@ -87,7 +87,7 @@ struct RootView: View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 SourceEditor(viewCodeAction: { selectedTab = .json }, addAppAction: {
-                    store.source.apps.append(AltApp())
+                    store.source.apps.append(SourceApp())
                     selectedTab = .apps
                 })
             }
@@ -114,7 +114,7 @@ struct RootView: View {
                 Label(section.title, systemImage: section.icon)
                     .tag(section)
             }
-            .navigationTitle("AltSource Studio")
+            .navigationTitle("Source Editor")
             .listStyle(.sidebar)
             .safeAreaInset(edge: .bottom) {
                 Text("앱 \(store.source.apps.count)개 · 뉴스 \(store.source.news.count)개")
@@ -127,7 +127,7 @@ struct RootView: View {
             NavigationStack {
                 switch selectedSection ?? .source {
                 case .source: SourceEditor(viewCodeAction: { selectedSection = .json }, addAppAction: {
-                    store.source.apps.append(AltApp())
+                    store.source.apps.append(SourceApp())
                     selectedSection = .apps
                 })
                 case .apps: AppsScreen()
@@ -165,7 +165,7 @@ struct RootView: View {
         let started = Date()
         importProgress = 0
         DispatchQueue.global(qos: .userInitiated).async {
-            let result: Result<(Data, AltSource), Error> = Result {
+            let result: Result<(Data, Source), Error> = Result {
                 guard url.pathExtension.lowercased() == "json" else { throw JSONImportError.invalidExtension }
                 let granted = url.startAccessingSecurityScopedResource()
                 defer { if granted { url.stopAccessingSecurityScopedResource() } }
@@ -283,20 +283,20 @@ struct WelcomeScreen: View {
                         .frame(width: 86, height: 86)
                         .accessibilityHidden(true)
 
-                        Text("Welcome to AltSource Studio")
+                        Text("Welcome to Source Editor")
                             .font(.system(size: UIDevice.current.userInterfaceIdiom == .pad ? 34 : 28,
                                           weight: .bold, design: .rounded))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Text("AltStore용 소스 JSON을 만들고 관리하세요. 앱과 뉴스 정보를 입력한 뒤 JSON 파일로 저장할 수 있습니다.")
+                        Text("SideStore용 소스 JSON을 만들고 관리하세요. 앱과 뉴스 정보를 입력한 뒤 JSON 파일로 저장할 수 있습니다.")
                             .font(.body)
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
 
                         VStack(alignment: .leading, spacing: 22) {
                             feature("rectangle.split.2x1", "편리한 편집", "소스, 앱, 버전과 뉴스를 한곳에서 관리합니다.")
-                            feature("arrow.down.doc", "기존 JSON 가져오기", "파일 앱에서 AltSource JSON을 선택해 계속 편집합니다.")
+                            feature("arrow.down.doc", "기존 JSON 가져오기", "파일 앱에서 Source JSON을 선택해 계속 편집합니다.")
                             feature("ipad.and.iphone", "iPhone·iPad 지원", "화면 크기에 맞는 편집 화면으로 작업합니다.")
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -380,7 +380,7 @@ struct SourceEditor: View {
     @State private var dragFingerY: CGFloat = 0
     @State private var dragTouchOffset: CGFloat = 0
 
-    private var visibleApps: [AltApp] {
+    private var visibleApps: [SourceApp] {
         let apps = store.source.apps.filter { app in
             searchText.isEmpty || app.name.localizedCaseInsensitiveContains(searchText)
                 || app.bundleIdentifier.localizedCaseInsensitiveContains(searchText)
@@ -500,7 +500,7 @@ struct SourceEditor: View {
     }
 
     @ViewBuilder
-    private func featuredRow(_ app: AltApp) -> some View {
+    private func featuredRow(_ app: SourceApp) -> some View {
         let selected = store.source.featuredApps.contains(app.bundleIdentifier)
         if selected {
             featuredRowContent(app, selected: true)
@@ -512,7 +512,7 @@ struct SourceEditor: View {
         }
     }
 
-    private func featuredRowContent(_ app: AltApp, selected: Bool) -> some View {
+    private func featuredRowContent(_ app: SourceApp, selected: Bool) -> some View {
         HStack(spacing: 12) {
             if selected {
                 ImmediateReorderHandle(
@@ -548,7 +548,7 @@ struct SourceEditor: View {
         .padding(.vertical, 8)
     }
 
-    private func featuredAppDetails(_ app: AltApp, selected: Bool) -> some View {
+    private func featuredAppDetails(_ app: SourceApp, selected: Bool) -> some View {
         HStack(spacing: 12) {
             RemoteImage(url: app.iconURL, systemName: "app", localData: app.iconPreviewData)
                 .frame(width: 38, height: 38)
@@ -784,14 +784,14 @@ func sourceHexColor(_ color: Color) -> String {
 
 struct VersionEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var version: AltVersion
-    @State private var draft: AltVersion
+    @Binding var version: SourceVersion
+    @State private var draft: SourceVersion
     @State private var sizeText = ""
     @State private var sizeUnit = "MB"
     @State private var didLoadSize = false
     private let units = ["bytes", "KB", "MB", "GB"]
 
-    init(version: Binding<AltVersion>) {
+    init(version: Binding<SourceVersion>) {
         _version = version
         _draft = State(initialValue: version.wrappedValue)
     }
@@ -1013,16 +1013,16 @@ extension View {
 
 struct JSONScreen: View {
     @EnvironmentObject private var store: SourceStore
+    @State private var showingGitHubUpload = false
     let importAction: () -> Void
     let exportAction: () -> Void
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Button(action: importAction) { Label("가져오기", systemImage: "square.and.arrow.down") }
-                        .buttonStyle(.bordered)
-                    Button(action: exportAction) { Label("JSON 저장", systemImage: "square.and.arrow.up") }
-                        .buttonStyle(.borderedProminent)
+                ViewThatFits(in: .horizontal) {
+                    actionButtons(uploadTitle: "GitHub에 업로드하기")
+                        .fixedSize(horizontal: true, vertical: false)
+                    actionButtons(uploadTitle: "GitHub 업로드")
                 }
                 if store.issues.isEmpty {
                     Label("필수 항목 검사를 통과했습니다", systemImage: "checkmark.circle.fill")
@@ -1044,6 +1044,22 @@ struct JSONScreen: View {
             .padding()
         }
         .navigationTitle("JSON 미리보기")
+        .sheet(isPresented: $showingGitHubUpload) { GitHubUploadSheet() }
+    }
+
+    private func actionButtons(uploadTitle: String) -> some View {
+        HStack(spacing: 6) {
+            Button(action: importAction) { Label("가져오기", systemImage: "square.and.arrow.down") }
+                .buttonStyle(.bordered)
+            Button(action: exportAction) { Label("JSON 저장", systemImage: "square.and.arrow.up") }
+                .buttonStyle(.borderedProminent)
+            Button { showingGitHubUpload = true } label: {
+                Label(uploadTitle, systemImage: "arrow.up.circle")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("GitHub에 업로드하기")
+        }
+        .font(.subheadline)
     }
 }
 

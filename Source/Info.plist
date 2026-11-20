@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>AltSource Studio</string>
+    <string>Source Editor</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -34,9 +34,9 @@
     <array>
         <dict>
             <key>UTTypeIdentifier</key>
-            <string>app.altstudio.sourcecreator.adp</string>
+            <string>app.sourceeditor.adp</string>
             <key>UTTypeDescription</key>
-            <string>AltStore ADP file</string>
+            <string>SideStore ADP file</string>
             <key>UTTypeConformsTo</key>
             <array>
                 <string>public.data</string>

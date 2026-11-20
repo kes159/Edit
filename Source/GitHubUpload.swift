@@ -205,7 +205,7 @@ private struct GitHubUploadTarget {
 }
 
 private enum GitHubUploadToken {
-    private static let service = "app.altstudio.sourcecreator.github-upload"
+    private static let service = "app.sourceeditor.github-upload"
 
     private static func query(repository: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -285,7 +285,7 @@ private enum GitHubJSONUploader {
         var update = request(url: target.apiURL, token: token)
         update.httpMethod = "PUT"
         let body = try JSONEncoder().encode(UpdateRequest(
-            message: "Update \(target.path) from AltSource Studio",
+            message: "Update \(target.path) from Source Editor",
             content: data.base64EncodedString(),
             sha: existingSHA,
             branch: target.branch

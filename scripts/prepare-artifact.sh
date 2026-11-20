@@ -2,7 +2,7 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_ipa="${project_dir}/build/AltSourceStudio.ipa"
+source_ipa="${project_dir}/build/Source.ipa"
 artifact_dir="${project_dir}/build/artifacts"
 
 if [[ ! -s "${source_ipa}" ]]; then

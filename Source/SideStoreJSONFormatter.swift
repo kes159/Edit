@@ -2,7 +2,7 @@ import Foundation
 
 /// Matches the JSON normalization used by NightFox_Repository/update_source.py.
 enum SideStoreJSONFormatter {
-    static func encode(_ source: AltSource, preserving originalData: Data?) throws -> Data {
+    static func encode(_ source: Source, preserving originalData: Data?) throws -> Data {
         let original = originalData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         var result = original
         update(&result, from: source, keys: ["name", "subtitle", "description", "iconURL", "tintColor", "featuredApps", "headerURL", "fediUsername", "identifier"])
@@ -32,7 +32,7 @@ enum SideStoreJSONFormatter {
         return try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys])
     }
 
-    private static func format(_ app: AltApp, preserving original: [String: Any]) -> [String: Any] {
+    private static func format(_ app: SourceApp, preserving original: [String: Any]) -> [String: Any] {
         var result = original
         update(&result, from: app, keys: ["name", "bundleIdentifier", "developerName", "subtitle", "localizedDescription", "iconURL", "tintColor", "category", "screenshots"])
         result["name"] = app.name
@@ -53,7 +53,7 @@ enum SideStoreJSONFormatter {
         return result
     }
 
-    private static func format(_ version: AltVersion, preserving original: [String: Any]) -> [String: Any] {
+    private static func format(_ version: SourceVersion, preserving original: [String: Any]) -> [String: Any] {
         var result = original
         update(&result, from: version, keys: ["version", "date", "localizedDescription", "downloadURL", "size", "minOSVersion", "maxOSVersion", "marketingVersion", "assetURLs"])
         result["version"] = version.version
@@ -66,7 +66,7 @@ enum SideStoreJSONFormatter {
         return result
     }
 
-    private static func format(_ news: AltNews, preserving original: [String: Any]) -> [String: Any] {
+    private static func format(_ news: SourceNews, preserving original: [String: Any]) -> [String: Any] {
         var result = original
         update(&result, from: news, keys: ["title", "identifier", "caption", "date", "tintColor", "imageURL", "notify", "appID"])
         result["title"] = news.title

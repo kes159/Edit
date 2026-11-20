@@ -4,32 +4,32 @@ import UniformTypeIdentifiers
 
 final class SourceStore: ObservableObject {
     private var importedJSON: Data?
-    @Published var source: AltSource {
+    @Published var source: Source {
         didSet { save() }
     }
     @Published var message: String?
-    var hasSavedDraft: Bool { UserDefaults.standard.data(forKey: "altSourceDraft") != nil }
+    var hasSavedDraft: Bool { UserDefaults.standard.data(forKey: "sourceDraft") != nil }
 
     init() {
-        importedJSON = UserDefaults.standard.data(forKey: "altSourceImportedJSON")
-        if let data = UserDefaults.standard.data(forKey: "altSourceDraft"),
-           let loaded = try? JSONDecoder().decode(AltSource.self, from: data) {
+        importedJSON = UserDefaults.standard.data(forKey: "sourceImportedJSON")
+        if let data = UserDefaults.standard.data(forKey: "sourceDraft"),
+           let loaded = try? JSONDecoder().decode(Source.self, from: data) {
             source = loaded
         } else {
-            source = AltSource()
+            source = Source()
         }
     }
 
     private func save() {
         if let data = try? JSONEncoder().encode(source) {
-            UserDefaults.standard.set(data, forKey: "altSourceDraft")
+            UserDefaults.standard.set(data, forKey: "sourceDraft")
         }
     }
 
     func newProject() {
         importedJSON = nil
-        UserDefaults.standard.removeObject(forKey: "altSourceImportedJSON")
-        source = AltSource()
+        UserDefaults.standard.removeObject(forKey: "sourceImportedJSON")
+        source = Source()
     }
 
     func jsonData() -> Data {
@@ -65,19 +65,19 @@ final class SourceStore: ObservableObject {
         }
     }
 
-    static func decodeJSON(_ data: Data) throws -> AltSource {
+    static func decodeJSON(_ data: Data) throws -> Source {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["name"] is String,
               object["apps"] is [Any],
               (object["news"] == nil || object["news"] is [Any]) else {
-            throw ImportFailure.invalidAltSource
+            throw ImportFailure.invalidSource
         }
-        return try JSONDecoder().decode(AltSource.self, from: data)
+        return try JSONDecoder().decode(Source.self, from: data)
     }
 
-    func applyImportedJSON(_ imported: AltSource, data: Data) {
+    func applyImportedJSON(_ imported: Source, data: Data) {
         importedJSON = data
-        UserDefaults.standard.set(data, forKey: "altSourceImportedJSON")
+        UserDefaults.standard.set(data, forKey: "sourceImportedJSON")
         source = imported
         message = "JSON을 가져왔습니다."
     }
@@ -116,9 +116,9 @@ final class SourceStore: ObservableObject {
 }
 
 private enum ImportFailure: LocalizedError {
-    case invalidAltSource
+    case invalidSource
     var errorDescription: String? {
-        "AltSource JSON에는 name과 apps 항목이 필요합니다."
+        "Source JSON에는 name과 apps 항목이 필요합니다."
     }
 }
 
