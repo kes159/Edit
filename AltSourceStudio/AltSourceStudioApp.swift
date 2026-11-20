@@ -12,7 +12,7 @@ struct RootView: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var importing = false
-    @State private var importStartedAt: Date?
+    @State private var importProgress: Double?
     @State private var exporting = false
     @State private var exportDocument: JSONFile?
     @State private var showWelcome = true
@@ -53,17 +53,12 @@ struct RootView: View {
             )
         }
         .overlay {
-            if let started = importStartedAt {
+            if let importProgress {
                 ZStack {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
-                        ProgressView().controlSize(.large)
                         Text("JSON 불러오는 중…").font(.headline)
-                        TimelineView(.periodic(from: started, by: 0.1)) { context in
-                            Text(String(format: "경과 %.1f초", max(0, context.date.timeIntervalSince(started))))
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
+                        JSONImportProgressIndicator(progress: importProgress)
                     }
                     .padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
@@ -168,29 +163,65 @@ struct RootView: View {
 
     private func beginImport(_ url: URL) {
         let started = Date()
-        importStartedAt = started
+        importProgress = 0
         DispatchQueue.global(qos: .userInitiated).async {
             let result: Result<(Data, AltSource), Error> = Result {
                 guard url.pathExtension.lowercased() == "json" else { throw JSONImportError.invalidExtension }
                 let granted = url.startAccessingSecurityScopedResource()
                 defer { if granted { url.stopAccessingSecurityScopedResource() } }
-                let data = try Data(contentsOf: url)
+                let expectedSize = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                var data = Data()
+                var readBytes: Int64 = 0
+                while let chunk = try handle.read(upToCount: 256 * 1024), !chunk.isEmpty {
+                    data.append(chunk)
+                    readBytes += Int64(chunk.count)
+                    let fraction = expectedSize > 0 ? min(0.95, Double(readBytes) / Double(expectedSize) * 0.95) : 0.95
+                    DispatchQueue.main.async {
+                        withAnimation(.linear(duration: 0.25)) { importProgress = fraction }
+                    }
+                }
                 return (data, try SourceStore.decodeJSON(data))
             }
             DispatchQueue.main.async {
-                let remaining = max(0, 0.5 - Date().timeIntervalSince(started))
-                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
-                    importStartedAt = nil
-                    switch result {
-                    case .success(let (data, source)):
+                switch result {
+                case .success(let (data, source)):
+                    withAnimation(.linear(duration: 0.5)) { importProgress = 1 }
+                    let remaining = max(0.6, 0.8 - Date().timeIntervalSince(started))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                        importProgress = nil
                         store.applyImportedJSON(source, data: data)
                         showWelcome = false
-                    case .failure(let error):
-                        store.message = "JSON 파일을 불러오지 못했습니다: \(error.localizedDescription)"
                     }
+                case .failure(let error):
+                    importProgress = nil
+                    store.message = "JSON 파일을 불러오지 못했습니다: \(error.localizedDescription)"
                 }
             }
         }
+    }
+}
+
+private struct JSONImportProgressIndicator: View, Animatable {
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ProgressView(value: progress, total: 1)
+                .tint(.blue)
+                .frame(width: 250)
+            Text("\(Int((progress * 100).rounded()))%")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("JSON 가져오기 진행률")
+        .accessibilityValue("\(Int((progress * 100).rounded()))퍼센트")
     }
 }
 

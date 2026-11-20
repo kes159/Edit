@@ -20,16 +20,16 @@ struct NewsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("News").font(.title2.bold()).frame(maxWidth: .infinity).padding(.top, 10)
+                Text("뉴스").font(.title2.bold()).frame(maxWidth: .infinity).padding(.top, 10)
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search", text: $search)
+                    TextField("검색", text: $search)
                 }
                 .padding(14)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 15))
                 Divider().padding(.top, 3)
                 HStack {
-                    Text("Total \(store.source.news.count)").font(.headline)
+                    Text("전체 \(store.source.news.count)개").font(.headline)
                     Spacer()
                     Button {
                         var item = AltNews()
@@ -102,7 +102,7 @@ private struct NewsCard: View {
                     if news.notify { Image(systemName: "bell.fill") }
                     Text(newsDisplayDate(news.date)).font(.caption)
                 }
-                Text(news.title.isEmpty ? "New announcement" : news.title)
+                Text(news.title.isEmpty ? "새 소식" : news.title)
                     .font(.title3.bold()).lineLimit(2)
                 if !news.caption.isEmpty { Text(news.caption).font(.subheadline).lineLimit(2) }
             }
@@ -147,20 +147,20 @@ private struct NewsEditor: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
                     Spacer()
-                    Button(action: viewCodeAction) { Label("View code", systemImage: "chevron.left.forwardslash.chevron.right") }
+                    Button(action: viewCodeAction) { Label("소스코드 보기", systemImage: "chevron.left.forwardslash.chevron.right") }
                     Divider().frame(height: 20)
                     Button(role: .destructive) { deleting = true } label: { Image(systemName: "trash") }
                         .accessibilityLabel("뉴스 삭제")
                 }
                 NewsPosterField(url: $news.imageURL)
-                AppInputField(title: "Title", text: $news.title)
-                AppInputField(title: "Identifier", text: $news.identifier, identifier: true)
+                AppInputField(title: "제목", text: $news.title)
+                AppInputField(title: "식별자", text: $news.identifier, identifier: true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Tint color").font(.subheadline)
+                    Text("틴트 컬러").font(.subheadline)
                     HStack {
                         TextField("#00b39e", text: $news.tintColor)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        ColorPicker("Tint color", selection: Binding(
+                        ColorPicker("틴트 컬러", selection: Binding(
                             get: { sourceTintColor(news.tintColor) },
                             set: { news.tintColor = sourceHexColor($0) }
                         )).labelsHidden()
@@ -168,37 +168,55 @@ private struct NewsEditor: View {
                     .padding(12)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 }
-                AppInputField(title: "Caption", text: $news.caption)
-                AppInputField(title: "URL", text: $news.url, identifier: true)
+                AppInputField(title: "요약", text: $news.caption)
+                AppInputField(title: "뉴스 URL (선택 사항)", text: $news.url, identifier: true)
                 Text("현재 JSON 저장 형식에서는 뉴스 URL이 제외됩니다.")
                     .font(.caption2).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Release date").font(.subheadline)
-                    DatePicker("Release date", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
+                    Text("게시일").font(.subheadline)
+                    DatePicker("게시일", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
                         .labelsHidden().frame(maxWidth: .infinity)
                         .padding(8)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Notifications").font(.subheadline)
-                    Toggle(isOn: $news.notify) { Label("Send notification", systemImage: "bell.fill") }
+                    Text("알림").font(.subheadline)
+                    Toggle(isOn: $news.notify) { Label("알림 보내기", systemImage: "bell.fill") }
                         .padding(12)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Associated app").font(.subheadline)
+                    Text("연결된 앱 (선택 사항)").font(.subheadline)
                     if let app = apps.first(where: { $0.bundleIdentifier == news.appID }) {
-                        AssociatedAppCard(app: app, actionTitle: "UNLINK") { news.appID = "" }
+                        AssociatedAppCard(app: app, actionTitle: "연결 해제") { news.appID = "" }
                     } else {
-                        Button { choosingApp = true } label: { Label("Attach application", systemImage: "plus") }
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                        Button { choosingApp = true } label: {
+                            HStack(spacing: 16) {
+                                Image(systemName: "plus.app")
+                                    .font(.system(size: 34, weight: .regular))
+                                    .foregroundStyle(.blue)
+                                    .frame(width: 72, height: 72)
+                                    .background(Color(uiColor: .tertiarySystemBackground),
+                                                in: RoundedRectangle(cornerRadius: 18))
+                                Text("애플리케이션 연결하기")
+                                    .font(.title3)
+                                    .foregroundStyle(.primary)
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(10)
+                            .background(Color(uiColor: .secondarySystemBackground),
+                                        in: RoundedRectangle(cornerRadius: 22))
+                            .contentShape(RoundedRectangle(cornerRadius: 22))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
             .padding(16).frame(maxWidth: 780).frame(maxWidth: .infinity)
         }
-        .navigationTitle("News editor")
+        .navigationTitle("뉴스 편집")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $choosingApp) {
             AssociatedAppPicker(apps: apps) { news.appID = $0.bundleIdentifier; choosingApp = false }
@@ -215,11 +233,11 @@ private struct NewsPosterField: View {
     @State private var showingURL = false
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("Poster (optional)").font(.subheadline)
+            Text("포스터 이미지 (선택 사항)").font(.subheadline)
             Button { showingURL = true } label: {
                 ZStack {
                     if url.isEmpty {
-                        Label("Add Image", systemImage: "photo").font(.headline)
+                        Label("이미지 추가", systemImage: "photo").font(.headline)
                     } else {
                         RemoteImage(url: url, systemName: "photo")
                     }
@@ -228,13 +246,13 @@ private struct NewsPosterField: View {
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
             }
-            if !url.isEmpty { Button("Delete image", role: .destructive) { url = "" }.font(.caption) }
+            if !url.isEmpty { Button("이미지 삭제", role: .destructive) { url = "" }.font(.caption) }
         }
-        .alert("Poster image URL", isPresented: $showingURL) {
+        .alert("포스터 이미지 URL", isPresented: $showingURL) {
             TextField("https://example.com/image.png", text: $url)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("Done") {}
-            Button("Cancel", role: .cancel) {}
+            Button("완료") {}
+            Button("취소", role: .cancel) {}
         } message: { Text("JSON에 저장할 이미지 주소를 입력하세요.") }
     }
 }
@@ -249,12 +267,12 @@ private struct AssociatedAppPicker: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(apps.indices.filter { search.isEmpty || apps[$0].name.localizedCaseInsensitiveContains(search) || apps[$0].bundleIdentifier.localizedCaseInsensitiveContains(search) }, id: \.self) { index in
-                        AssociatedAppCard(app: apps[index], actionTitle: "ATTACH") { select(apps[index]) }
+                        AssociatedAppCard(app: apps[index], actionTitle: "연결") { select(apps[index]) }
                     }
                 }.padding(16)
             }
-            .searchable(text: $search)
-            .navigationTitle("Choose Associated App")
+            .searchable(text: $search, prompt: "검색")
+            .navigationTitle("연결할 앱 선택")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("닫기") { dismiss() } }
         }
