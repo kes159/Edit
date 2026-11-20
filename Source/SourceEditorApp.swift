@@ -386,6 +386,7 @@ private enum EditorSection: String, CaseIterable, Identifiable {
 struct SourceEditor: View {
     @EnvironmentObject private var store: SourceStore
     @EnvironmentObject private var diagnostics: ReorderDiagnostics
+    @Environment(\.scenePhase) private var scenePhase
     let viewCodeAction: () -> Void
     let addAppAction: () -> Void
     @State private var searchText = ""
@@ -395,14 +396,17 @@ struct SourceEditor: View {
     @State private var handleDragID: String?
     @State private var dragPosition = ReorderDragPosition()
     @State private var dragTouchOffset: CGFloat = 0
+    @State private var previewFeaturedOrder: [String]?
+
+    private var featuredOrder: [String] { previewFeaturedOrder ?? store.source.featuredApps }
 
     private var visibleApps: [SourceApp] {
         let apps = store.source.apps.filter { app in
             searchText.isEmpty || app.name.localizedCaseInsensitiveContains(searchText)
                 || app.bundleIdentifier.localizedCaseInsensitiveContains(searchText)
         }
-        let selected = store.source.featuredApps.compactMap { id in apps.first { $0.bundleIdentifier == id } }
-        return selected + apps.filter { !store.source.featuredApps.contains($0.bundleIdentifier) }
+        let selected = featuredOrder.compactMap { id in apps.first { $0.bundleIdentifier == id } }
+        return selected + apps.filter { !featuredOrder.contains($0.bundleIdentifier) }
     }
 
     var body: some View {
@@ -483,8 +487,17 @@ struct SourceEditor: View {
         }
         .onDisappear {
             autoScroller.stop()
-            store.finishReorder()
+            commitFeaturedOrder()
+            handleDragID = nil
             diagnostics.finishGesture()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                autoScroller.stop()
+                commitFeaturedOrder()
+                handleDragID = nil
+                diagnostics.finishGesture()
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .keyboardDismissButton()
@@ -525,7 +538,7 @@ struct SourceEditor: View {
 
     @ViewBuilder
     private func featuredRow(_ app: SourceApp) -> some View {
-        let selected = store.source.featuredApps.contains(app.bundleIdentifier)
+        let selected = featuredOrder.contains(app.bundleIdentifier)
         if selected {
             featuredRowContent(app, selected: true)
                 .contentShape(Rectangle())
@@ -605,15 +618,24 @@ struct SourceEditor: View {
     }
 
     private func moveFeatured(_ sourceID: String, to targetIndex: Int) {
-        var order = store.source.featuredApps
+        guard var order = previewFeaturedOrder else { return }
         guard let sourceIndex = order.firstIndex(of: sourceID),
               order.indices.contains(targetIndex),
               sourceIndex != targetIndex else { return }
         order.remove(at: sourceIndex)
         order.insert(sourceID, at: targetIndex)
         let started = CACurrentMediaTime()
-        withAnimation(ReorderMotion.shift) { store.reorderFeaturedApps(order) }
+        withAnimation(ReorderMotion.shift) { previewFeaturedOrder = order }
         diagnostics.recordReorder(duration: CACurrentMediaTime() - started)
+    }
+
+    private func commitFeaturedOrder() {
+        guard let previewFeaturedOrder else { return }
+        if previewFeaturedOrder != store.source.featuredApps {
+            store.reorderFeaturedApps(previewFeaturedOrder)
+            store.finishReorder()
+        }
+        self.previewFeaturedOrder = nil
     }
 
     private func updateFeaturedDrag(_ id: String, y: CGFloat, input: String = "자동 스크롤") {
@@ -624,6 +646,7 @@ struct SourceEditor: View {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames["featured:\(id)"] else { return }
             diagnostics.beginGesture(area: "소스 대표 앱", input: input)
+            previewFeaturedOrder = store.source.featuredApps
             dragTouchOffset = y - frame.midY
             dragPosition.update(to: y)
             withAnimation(ReorderMotion.lift) { handleDragID = id }
@@ -635,12 +658,12 @@ struct SourceEditor: View {
         guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
         let slots = rowFrameCache.frames.filter {
             $0.key.hasPrefix("featured:") && validReorderFrame($0.value)
-                && store.source.featuredApps.contains(String($0.key.dropFirst(9)))
+                && featuredOrder.contains(String($0.key.dropFirst(9)))
         }.sorted { $0.value.midY < $1.value.midY }
         if let target = slots.enumerated().min(by: {
             abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
         })?.offset,
-           let slotIndex = store.source.featuredApps.firstIndex(of: String(slots[target].key.dropFirst(9))) {
+           let slotIndex = featuredOrder.firstIndex(of: String(slots[target].key.dropFirst(9))) {
             moveFeatured(id, to: slotIndex)
         }
     }
@@ -652,7 +675,7 @@ struct SourceEditor: View {
         withAnimation(ReorderMotion.drop) { handleDragID = nil }
         dragFrames = [:]
         let started = CACurrentMediaTime()
-        store.finishReorder()
+        commitFeaturedOrder()
         diagnostics.recordFinish(duration: CACurrentMediaTime() - started)
         diagnostics.finishGesture()
     }

@@ -487,6 +487,7 @@ struct ReorderFloatingPreview<Content: View>: View {
 struct AppsScreen: View {
     @EnvironmentObject private var store: SourceStore
     @EnvironmentObject private var diagnostics: ReorderDiagnostics
+    @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
     @State private var editing = false
     @State private var editorAppID: UUID?
@@ -499,9 +500,16 @@ struct AppsScreen: View {
     @State private var draggedAppID: UUID?
     @State private var dragPosition = ReorderDragPosition()
     @State private var dragTouchOffset: CGFloat = 0
+    @State private var previewAppIDs: [UUID]?
+
+    private var orderedApps: [SourceApp] {
+        guard let previewAppIDs else { return store.source.apps }
+        let appsByID = Dictionary(uniqueKeysWithValues: store.source.apps.map { ($0.editorID, $0) })
+        return previewAppIDs.compactMap { appsByID[$0] }
+    }
 
     private var visibleApps: [SourceApp] {
-        store.source.apps.filter { app in
+        orderedApps.filter { app in
             return search.isEmpty || app.name.localizedCaseInsensitiveContains(search)
                 || app.bundleIdentifier.localizedCaseInsensitiveContains(search)
         }
@@ -549,10 +557,9 @@ struct AppsScreen: View {
                 } else {
                     VStack(spacing: 10) {
                         ForEach(visibleApps, id: \.editorID) { app in
-                            if let index = store.source.apps.firstIndex(where: { $0.editorID == app.editorID }) {
                             HStack(spacing: 7) {
                                 if editing {
-                                    Button(role: .destructive) { removeApp(index) } label: {
+                                    Button(role: .destructive) { removeApp(app.editorID) } label: {
                                         Image(systemName: "minus.circle.fill")
                                     }
                                     ImmediateReorderHandle(
@@ -580,7 +587,6 @@ struct AppsScreen: View {
                             .contentShape(Rectangle())
                             .reorderFrame(id: "app:\(app.editorID.uuidString)", in: "appsReorder")
                             .opacity(draggedAppID == app.editorID ? 0.001 : 1)
-                            }
                         }
                     }
                 }
@@ -620,8 +626,17 @@ struct AppsScreen: View {
         }
         .onDisappear {
             autoScroller.stop()
-            store.finishReorder()
+            commitPreviewApps()
+            draggedAppID = nil
             diagnostics.finishGesture()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                autoScroller.stop()
+                commitPreviewApps()
+                draggedAppID = nil
+                diagnostics.finishGesture()
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $showingEditor) {
@@ -670,7 +685,8 @@ struct AppsScreen: View {
         }
     }
 
-    private func removeApp(_ index: Int) {
+    private func removeApp(_ editorID: UUID) {
+        guard let index = store.source.apps.firstIndex(where: { $0.editorID == editorID }) else { return }
         let id = store.source.apps[index].bundleIdentifier
         store.source.apps.remove(at: index)
         store.source.featuredApps.removeAll { $0 == id }
@@ -685,15 +701,24 @@ struct AppsScreen: View {
     }
 
     private func moveApp(_ id: UUID, to targetIndex: Int) {
-        var apps = store.source.apps
-        guard let sourceIndex = apps.firstIndex(where: { $0.editorID == id }),
-              apps.indices.contains(targetIndex),
+        guard var ids = previewAppIDs else { return }
+        guard let sourceIndex = ids.firstIndex(of: id),
+              ids.indices.contains(targetIndex),
               sourceIndex != targetIndex else { return }
-        let moved = apps.remove(at: sourceIndex)
-        apps.insert(moved, at: targetIndex)
+        ids.remove(at: sourceIndex)
+        ids.insert(id, at: targetIndex)
         let started = CACurrentMediaTime()
-        withAnimation(ReorderMotion.shift) { store.reorderApps(apps) }
+        withAnimation(ReorderMotion.shift) { previewAppIDs = ids }
         diagnostics.recordReorder(duration: CACurrentMediaTime() - started)
+    }
+
+    private func commitPreviewApps() {
+        guard let previewAppIDs else { return }
+        if previewAppIDs != store.source.apps.map(\.editorID) {
+            store.reorderApps(orderedApps)
+            store.finishReorder()
+        }
+        self.previewAppIDs = nil
     }
 
     private func updateDrag(_ id: UUID, y: CGFloat, input: String = "자동 스크롤") {
@@ -705,6 +730,7 @@ struct AppsScreen: View {
             dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames[key] else { return }
             diagnostics.beginGesture(area: "앱 목록", input: input)
+            previewAppIDs = store.source.apps.map(\.editorID)
             dragTouchOffset = y - frame.midY
             dragPosition.update(to: y)
             withAnimation(ReorderMotion.lift) { draggedAppID = id }
@@ -722,7 +748,7 @@ struct AppsScreen: View {
         })?.offset else { return }
         let targetID = UUID(uuidString: String(slots[target].key.dropFirst(4)))
         if let targetID,
-           let slotIndex = store.source.apps.firstIndex(where: { $0.editorID == targetID }) {
+           let slotIndex = previewAppIDs?.firstIndex(of: targetID) {
             moveApp(id, to: slotIndex)
         }
     }
@@ -736,7 +762,7 @@ struct AppsScreen: View {
         withAnimation(ReorderMotion.drop) { draggedAppID = nil }
         dragFrames = [:]
         let started = CACurrentMediaTime()
-        store.finishReorder()
+        commitPreviewApps()
         diagnostics.recordFinish(duration: CACurrentMediaTime() - started)
         diagnostics.finishGesture()
     }
