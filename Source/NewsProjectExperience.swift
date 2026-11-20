@@ -13,6 +13,8 @@ struct NewsScreen: View {
     let viewCodeAction: () -> Void
     @State private var search = ""
     @State private var editing = false
+    @State private var newsToDeleteIndex: Int?
+    @State private var showingDeleteAlert = false
     @State private var newEditorIndex: Int?
     @State private var showingNewEditor = false
 
@@ -61,7 +63,10 @@ struct NewsScreen: View {
                 ForEach(indices, id: \.self) { index in
                     HStack(spacing: 8) {
                         if editing {
-                            Button(role: .destructive) { store.source.news.remove(at: index) } label: {
+                            Button(role: .destructive) {
+                                newsToDeleteIndex = index
+                                showingDeleteAlert = true
+                            } label: {
                                 Image(systemName: "minus.circle.fill").foregroundStyle(.red)
                             }
                             .accessibilityLabel("뉴스 삭제")
@@ -83,6 +88,15 @@ struct NewsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showingNewEditor) {
             if let newEditorIndex { editor(at: newEditorIndex) }
+        }
+        .alert("뉴스를 삭제하시겠습니까?", isPresented: $showingDeleteAlert) {
+            Button("예", role: .destructive) {
+                if let newsToDeleteIndex, store.source.news.indices.contains(newsToDeleteIndex) {
+                    store.source.news.remove(at: newsToDeleteIndex)
+                }
+                newsToDeleteIndex = nil
+            }
+            Button("아니오", role: .cancel) { newsToDeleteIndex = nil }
         }
         .keyboardDismissButton()
         }
@@ -236,8 +250,9 @@ private struct NewsEditor: View {
         .sheet(isPresented: $choosingApp) {
             AssociatedAppPicker(apps: apps) { news.appID = $0.bundleIdentifier; choosingApp = false }
         }
-        .confirmationDialog("이 뉴스를 삭제할까요?", isPresented: $deleting) {
-            Button("삭제", role: .destructive) { dismiss(); deleteAction() }
+        .alert("뉴스를 삭제하시겠습니까?", isPresented: $deleting) {
+            Button("예", role: .destructive) { dismiss(); deleteAction() }
+            Button("아니오", role: .cancel) {}
         }
         .keyboardDismissButton()
     }

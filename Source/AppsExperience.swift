@@ -338,6 +338,8 @@ struct AppsScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
     @State private var deleting = false
+    @State private var appToDeleteID: UUID?
+    @State private var showingDeleteAlert = false
     @State private var editorAppID: UUID?
     @State private var showingEditor = false
     @State private var lastDraggedAppID: UUID?
@@ -415,9 +417,13 @@ struct AppsScreen: View {
                         ForEach(visibleApps, id: \.editorID) { app in
                             HStack(spacing: 7) {
                                 if deleting {
-                                    Button(role: .destructive) { removeApp(app.editorID) } label: {
+                                    Button(role: .destructive) {
+                                        appToDeleteID = app.editorID
+                                        showingDeleteAlert = true
+                                    } label: {
                                         Image(systemName: "minus.circle.fill")
                                     }
+                                    .accessibilityLabel("앱 삭제")
                                 }
                                 ImmediateReorderHandle(
                                     coordinateSpace: "appsReorder",
@@ -497,8 +503,19 @@ struct AppsScreen: View {
         .navigationDestination(isPresented: $showingEditor) {
             if let editorAppID,
                let index = store.source.apps.firstIndex(where: { $0.editorID == editorAppID }) {
-                AppEditor(app: $store.source.apps[index])
+                AppEditor(app: $store.source.apps[index]) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        removeApp(editorAppID)
+                    }
+                }
             }
+        }
+        .alert("앱을 삭제하시겠습니까?", isPresented: $showingDeleteAlert) {
+            Button("예", role: .destructive) {
+                if let appToDeleteID { removeApp(appToDeleteID) }
+                appToDeleteID = nil
+            }
+            Button("아니오", role: .cancel) { appToDeleteID = nil }
         }
         .keyboardDismissButton()
         }
@@ -661,9 +678,12 @@ private struct AppPackagePicker: UIViewControllerRepresentable {
 }
 
 struct AppEditor: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: SourceStore
     @Binding var app: SourceApp
+    let deleteAction: () -> Void
     @State private var sheet: AppSheet?
+    @State private var showingDeleteAlert = false
     @State private var versionDraft = SourceVersion()
     @State private var versionSearch = ""
     @State private var showAllVersions = false
@@ -794,6 +814,13 @@ struct AppEditor: View {
                 else { store.source.featuredApps[index] = newID }
             }
         }
+        .alert("앱을 삭제하시겠습니까?", isPresented: $showingDeleteAlert) {
+            Button("예", role: .destructive) {
+                dismiss()
+                deleteAction()
+            }
+            Button("아니오", role: .cancel) {}
+        }
         .keyboardDismissButton()
     }
 
@@ -807,6 +834,11 @@ struct AppEditor: View {
             Spacer()
             Button { openPackagePicker() } label: { Label("IPA/ADP 파일 선택", systemImage: "doc") }
                 .font(.subheadline)
+            Divider().frame(height: 20)
+            Button(role: .destructive) { showingDeleteAlert = true } label: {
+                Image(systemName: "trash")
+            }
+            .accessibilityLabel("앱 삭제")
             Menu {
                 Button("앱 복제", systemImage: "plus.square.on.square") {
                     var copy = app
