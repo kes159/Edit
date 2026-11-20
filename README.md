@@ -20,7 +20,7 @@
 - 앱을 열면 시작 화면에서 새 프로젝트, 이전 작업 계속하기 또는 기존 JSON 가져오기를 선택
 - 입력 화면에서 키보드 위의 **키보드 내리기** 버튼으로 입력 종료
 - JSON 저장 시 버전 최신순 정렬, 날짜 `+09:00` 형식, 누락된 최소 iOS 버전 `16.1` 보정, NightFox GitHub 릴리스 URL의 프록시 주소 변환
-- Project 탭에서 현재 JSON을 비공개 `kes158/NightFox_Repository` 저장소의 `main/NightFox.json`에 업로드. 개인용 GitHub 토큰은 기기 키체인에 저장
+- Project 탭에서 현재 JSON을 원하는 GitHub 저장소의 브랜치와 JSON 파일 경로에 업로드. 개인용 GitHub 토큰은 저장소별로 기기 키체인에 저장
 
 ## 사용법
 
@@ -28,7 +28,7 @@
 2. **앱** 탭에서 앱과 최소 하나의 버전을 추가합니다. 다운로드 URL은 게시된 IPA 또는 ADP 파일을 가리켜야 합니다. 크기는 바이트 단위입니다.
 3. 필요하면 **뉴스**를 추가합니다.
 4. **JSON** 탭에서 검증 메시지를 확인하고 **JSON 저장**을 누릅니다. 기존 JSON은 같은 탭의 **가져오기**에서 열 수 있습니다.
-5. 저장소에 직접 반영하려면 GitHub의 **Settings → Developer settings → Personal access tokens → Fine-grained tokens**에서 토큰을 만듭니다. Repository access는 **Only select repositories → NightFox_Repository**, Repository permissions의 **Contents → Read and write**를 선택합니다. 앱의 **Project → GitHub에 업로드하기**에서 토큰을 입력하고 **NightFox.json 덮어쓰기**를 누릅니다. 이후에는 토큰을 기기 키체인에서 다시 불러옵니다.
+5. 저장소에 직접 반영하려면 **Project → GitHub에 업로드하기**에서 저장소(`소유자/저장소` 또는 GitHub URL), 브랜치, JSON 파일 경로를 입력합니다. 기본값은 `kes158/NightFox_Repository`, `main`, `NightFox.json`입니다. 화면 아래 **사용 방법**에 따라 GitHub의 Fine-grained personal access token을 만들고, 업로드할 저장소를 선택한 뒤 **Contents → Read and write** 권한을 부여합니다. 토큰을 입력하고 **JSON 업로드하기**를 누르면 기존 파일은 덮어쓰고 없는 파일은 새로 만듭니다. 토큰은 저장소별로 기기 키체인에서 다시 불러옵니다.
 
 이 앱은 JSON 파일을 생성하고 선택한 비공개 GitHub 저장소에 업로드할 수 있습니다. 실제 IPA/ADP 파일은 사용자가 별도로 호스팅해야 AltStore 소스로 배포할 수 있습니다.
 

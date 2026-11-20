@@ -5,6 +5,9 @@ import SwiftUI
 struct GitHubUploadSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: SourceStore
+    @AppStorage("githubUploadRepository") private var repository = "kes158/NightFox_Repository"
+    @AppStorage("githubUploadBranch") private var branch = "main"
+    @AppStorage("githubUploadPath") private var filePath = "NightFox.json"
     @State private var token = ""
     @State private var isUploading = false
     @State private var resultMessage: String?
@@ -14,9 +17,16 @@ struct GitHubUploadSheet: View {
         NavigationStack {
             Form {
                 Section("업로드 위치") {
-                    Text("kes158/NightFox_Repository")
-                    Text("main / NightFox.json")
-                    Text("현재 JSON 미리보기에 표시된 내용을 기존 파일에 덮어씁니다.")
+                    TextField("소유자/저장소", text: $repository)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("브랜치", text: $branch)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("JSON 파일 경로", text: $filePath)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("현재 JSON 미리보기 내용을 지정한 파일에 업로드합니다. 파일이 있으면 덮어쓰고 없으면 새로 만듭니다.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -24,12 +34,9 @@ struct GitHubUploadSheet: View {
                     SecureField("Fine-grained personal access token", text: $token)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Text("NightFox_Repository만 선택하고 Contents 권한을 Read and write로 설정한 토큰을 입력하세요. 토큰은 이 기기의 키체인에 저장됩니다.")
+                    Text("선택한 저장소의 Contents 읽기 및 쓰기 권한이 있는 토큰을 입력하세요. 토큰은 저장소별로 이 기기의 키체인에 저장됩니다.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    if let settingsURL = URL(string: "https://github.com/settings/personal-access-tokens/new") {
-                        Link("GitHub에서 토큰 만들기", destination: settingsURL)
-                    }
                 }
                 Section {
                     Button {
@@ -38,7 +45,7 @@ struct GitHubUploadSheet: View {
                         HStack {
                             Spacer()
                             if isUploading { ProgressView().padding(.trailing, 8) }
-                            Text(isUploading ? "업로드 중…" : "NightFox.json 덮어쓰기")
+                            Text(isUploading ? "업로드 중…" : "JSON 업로드하기")
                             Spacer()
                         }
                     }
@@ -52,20 +59,45 @@ struct GitHubUploadSheet: View {
                         }
                     }
                 }
+                Section("사용 방법") {
+                    Text("1. 저장소를 소유자/저장소 형식으로 입력하고 브랜치와 JSON 파일 경로를 지정하세요. GitHub 저장소 URL도 붙여넣을 수 있습니다.")
+                    Text("2. GitHub에서 Fine-grained personal access token을 만들고, 업로드할 저장소를 선택한 뒤 Contents 권한을 Read and write로 설정하세요. 비공개 저장소도 선택할 수 있습니다.")
+                    Text("3. 토큰을 입력한 뒤 JSON 업로드하기를 누르세요. 다른 저장소로 바꾸면 해당 저장소에 저장된 토큰을 불러옵니다.")
+                    if let settingsURL = URL(string: "https://github.com/settings/personal-access-tokens/new") {
+                        Link("GitHub에서 토큰 만들기", destination: settingsURL)
+                    }
+                }
+                .font(.footnote)
             }
             .navigationTitle("GitHub에 업로드")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("닫기") { dismiss() }.disabled(isUploading) }
         }
-        .task { token = GitHubUploadToken.load() ?? "" }
+        .task { loadToken(for: repository) }
+        .onChange(of: repository) { _, newValue in loadToken(for: newValue) }
         .keyboardDismissButton()
+    }
+
+    private func loadToken(for repository: String) {
+        guard let identifier = GitHubUploadTarget.repositoryIdentifier(from: repository) else {
+            token = ""
+            return
+        }
+        token = GitHubUploadToken.load(repository: identifier) ?? ""
     }
 
     private func upload() {
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         resultMessage = nil
         uploadedURL = nil
+        let target: GitHubUploadTarget
         let json: Data
+        do {
+            target = try GitHubUploadTarget(repository: repository, branch: branch, path: filePath)
+        } catch {
+            resultMessage = error.localizedDescription
+            return
+        }
         do {
             json = try store.jsonDataForUpload()
         } catch {
@@ -75,9 +107,9 @@ struct GitHubUploadSheet: View {
         isUploading = true
         Task {
             do {
-                try GitHubUploadToken.save(trimmedToken)
-                uploadedURL = try await GitHubJSONUploader.upload(json, token: trimmedToken)
-                resultMessage = "NightFox.json 업로드를 완료했습니다."
+                try GitHubUploadToken.save(trimmedToken, repository: target.repositoryIdentifier)
+                uploadedURL = try await GitHubJSONUploader.upload(json, token: trimmedToken, target: target)
+                resultMessage = "\(target.path) 업로드를 완료했습니다."
             } catch {
                 resultMessage = "업로드하지 못했습니다: \(error.localizedDescription)"
             }
@@ -86,18 +118,68 @@ struct GitHubUploadSheet: View {
     }
 }
 
-private enum GitHubUploadToken {
-    private static let service = "app.altstudio.sourcecreator.github-upload"
-    private static let account = "kes158/NightFox_Repository"
+private struct GitHubUploadTarget {
+    let owner: String
+    let repository: String
+    let branch: String
+    let path: String
 
-    private static var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
+    var repositoryIdentifier: String { "\(owner)/\(repository)" }
+
+    init(repository: String, branch: String, path: String) throws {
+        guard let identifier = Self.repositoryIdentifier(from: repository) else {
+            throw UploadFailure.invalidRepository
+        }
+        let parts = identifier.split(separator: "/", omittingEmptySubsequences: false)
+        owner = String(parts[0])
+        self.repository = String(parts[1])
+        self.branch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !self.branch.isEmpty else { throw UploadFailure.invalidBranch }
+        let pathParts = self.path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !pathParts.isEmpty,
+              pathParts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
+              self.path.lowercased().hasSuffix(".json") else { throw UploadFailure.invalidPath }
     }
 
-    static func load() -> String? {
-        var lookup = query
+    static func repositoryIdentifier(from value: String) -> String? {
+        var name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.lowercased().hasPrefix("https://github.com/") {
+            name = String(name.dropFirst("https://github.com/".count))
+        }
+        name = name.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if name.lowercased().hasSuffix(".git") { name = String(name.dropLast(4)) }
+        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              parts[0].range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil,
+              parts[1].range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil else { return nil }
+        return "\(parts[0])/\(parts[1])"
+    }
+
+    var apiURL: URL {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "api.github.com"
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))
+        let encodedPath = path.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: allowed)!
+        }.joined(separator: "/")
+        components.percentEncodedPath = "/repos/\(owner)/\(repository)/contents/\(encodedPath)"
+        return components.url!
+    }
+}
+
+private enum GitHubUploadToken {
+    private static let service = "app.altstudio.sourcecreator.github-upload"
+
+    private static func query(repository: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: repository]
+    }
+
+    static func load(repository: String) -> String? {
+        var lookup = query(repository: repository)
         lookup[kSecReturnData as String] = true
         lookup[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -106,59 +188,61 @@ private enum GitHubUploadToken {
         return String(data: data, encoding: .utf8)
     }
 
-    static func save(_ token: String) throws {
+    static func save(_ token: String, repository: String) throws {
         guard let data = token.data(using: .utf8) else { throw UploadFailure.invalidToken }
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
-        var item = query
+        var item = query(repository: repository)
         item.merge(attributes) { _, new in new }
         let status = SecItemAdd(item as CFDictionary, nil)
         let finalStatus = status == errSecDuplicateItem
-            ? SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            ? SecItemUpdate(query(repository: repository) as CFDictionary, attributes as CFDictionary)
             : status
         guard finalStatus == errSecSuccess else { throw UploadFailure.keychain }
     }
 }
 
 private enum GitHubJSONUploader {
-    private static let owner = "kes158"
-    private static let repository = "NightFox_Repository"
-    private static let branch = "main"
-    private static let file = "NightFox.json"
-    private static let endpoint = URL(string: "https://api.github.com/repos/\(owner)/\(repository)/contents/\(file)")!
-    private static let fileURL = URL(string: "https://github.com/\(owner)/\(repository)/blob/\(branch)/\(file)")!
-
     private struct ExistingFile: Decodable { let sha: String }
+    private struct UpdatedFile: Decodable {
+        let content: Content
+        struct Content: Decodable { let html_url: URL }
+    }
     private struct UpdateRequest: Encodable {
         let message: String
         let content: String
-        let sha: String
+        let sha: String?
         let branch: String
     }
 
-    static func upload(_ data: Data, token: String) async throws -> URL {
-        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "ref", value: branch)]
+    static func upload(_ data: Data, token: String, target: GitHubUploadTarget) async throws -> URL {
+        var components = URLComponents(url: target.apiURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "ref", value: target.branch)]
         var lookup = request(url: components.url!, token: token)
         lookup.httpMethod = "GET"
         let (fileData, lookupResponse) = try await URLSession.shared.data(for: lookup)
-        try check(lookupResponse)
-        let existing = try JSONDecoder().decode(ExistingFile.self, from: fileData)
+        let existingSHA: String?
+        if (lookupResponse as? HTTPURLResponse)?.statusCode == 404 {
+            existingSHA = nil
+        } else {
+            try check(lookupResponse, success: [200])
+            existingSHA = try JSONDecoder().decode(ExistingFile.self, from: fileData).sha
+        }
 
-        var update = request(url: endpoint, token: token)
+        var update = request(url: target.apiURL, token: token)
         update.httpMethod = "PUT"
         update.httpBody = try JSONEncoder().encode(UpdateRequest(
-            message: "Update NightFox.json from AltSource Studio",
+            message: "Update \(target.path) from AltSource Studio",
             content: data.base64EncodedString(),
-            sha: existing.sha,
-            branch: branch
+            sha: existingSHA,
+            branch: target.branch
         ))
         update.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (_, updateResponse) = try await URLSession.shared.data(for: update)
-        try check(updateResponse)
-        return fileURL
+        let (responseData, updateResponse) = try await URLSession.shared.data(for: update)
+        try check(updateResponse, success: [200, 201])
+        return try JSONDecoder().decode(UpdatedFile.self, from: responseData).content.html_url
     }
 
     private static func request(url: URL, token: String) -> URLRequest {
@@ -170,10 +254,10 @@ private enum GitHubJSONUploader {
         return request
     }
 
-    private static func check(_ response: URLResponse) throws {
+    private static func check(_ response: URLResponse, success: Set<Int>) throws {
         guard let http = response as? HTTPURLResponse else { throw UploadFailure.invalidResponse }
+        if success.contains(http.statusCode) { return }
         switch http.statusCode {
-        case 200: return
         case 401: throw UploadFailure.unauthorized
         case 403: throw UploadFailure.forbidden
         case 404: throw UploadFailure.notFound
@@ -184,16 +268,20 @@ private enum GitHubJSONUploader {
 }
 
 private enum UploadFailure: LocalizedError {
-    case invalidToken, keychain, invalidResponse, unauthorized, forbidden, notFound, conflict, http(Int)
+    case invalidRepository, invalidBranch, invalidPath, invalidToken, keychain
+    case invalidResponse, unauthorized, forbidden, notFound, conflict, http(Int)
 
     var errorDescription: String? {
         switch self {
+        case .invalidRepository: "저장소를 소유자/저장소 형식으로 입력하세요."
+        case .invalidBranch: "브랜치를 입력하세요."
+        case .invalidPath: "JSON 파일 경로를 입력하세요. 경로는 .json으로 끝나야 합니다."
         case .invalidToken: "토큰을 입력하세요."
         case .keychain: "토큰을 기기 키체인에 저장하지 못했습니다."
         case .invalidResponse: "GitHub 응답을 확인하지 못했습니다."
         case .unauthorized: "GitHub 토큰이 올바르지 않거나 만료되었습니다."
-        case .forbidden: "토큰에 NightFox_Repository의 Contents 쓰기 권한이 없습니다."
-        case .notFound: "저장소 또는 main/NightFox.json을 찾지 못했습니다. 토큰의 저장소 접근 권한도 확인하세요."
+        case .forbidden: "토큰에 선택한 저장소의 Contents 쓰기 권한이 없습니다."
+        case .notFound: "저장소 또는 브랜치를 찾지 못했습니다. 토큰의 저장소 접근 권한도 확인하세요."
         case .conflict: "다른 변경과 충돌했습니다. 다시 업로드해 주세요."
         case .http(let code): "GitHub 서버 오류 (HTTP \(code))."
         }
