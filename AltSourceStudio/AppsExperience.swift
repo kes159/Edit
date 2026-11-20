@@ -749,6 +749,25 @@ private func appVersionDate(_ value: String) -> String {
     return "\(components[0])년 \(Int(components[1]) ?? 0)월 \(Int(components[2]) ?? 0)일"
 }
 
+func appVersionPickerDate(_ value: String) -> Date {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: value) { return date }
+    formatter.formatOptions = [.withInternetDateTime]
+    if let date = formatter.date(from: value) { return date }
+    let day = DateFormatter()
+    day.locale = Locale(identifier: "en_US_POSIX")
+    day.dateFormat = "yyyy-MM-dd"
+    return day.date(from: String(value.prefix(10))) ?? .now
+}
+
+func appVersionISODate(_ value: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.timeZone = .current
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.string(from: value)
+}
+
 struct AppInputField: View {
     let title: String
     @Binding var text: String
@@ -758,7 +777,15 @@ struct AppInputField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.subheadline)
+            if title.hasSuffix(" *") {
+                HStack(spacing: 2) {
+                    Text(String(title.dropLast(2)))
+                    Text("*").foregroundStyle(.red)
+                }
+                .font(.subheadline)
+            } else {
+                Text(title).font(.subheadline)
+            }
             HStack(alignment: multiline ? .top : .center, spacing: 8) {
                 Group {
                     if multiline {
@@ -831,8 +858,8 @@ private struct AddVersionSheet: View {
                         }
                     }
                     AppInputField(title: "버전 번호 *", text: $version.version, placeholder: "1.0.0")
-                    AppInputField(title: "빌드 버전 (선택 사항)", text: $version.buildVersion, placeholder: "123")
-                    Text("빌드 버전은 현재 JSON 내보내기 형식에서 제외됩니다.")
+                    AppInputField(title: "빌드 번호 (선택 사항)", text: $version.buildVersion, placeholder: "123")
+                    Text("빌드 번호는 현재 JSON 내보내기 형식에서 제외됩니다.")
                         .font(.caption).foregroundStyle(.secondary).padding(.top, -18)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("출시일 *").font(.subheadline)
@@ -886,14 +913,8 @@ private struct AddVersionSheet: View {
     }
 
     private var dateBinding: Binding<Date> {
-        Binding(get: {
-            ISO8601DateFormatter().date(from: version.date) ?? Date()
-        }, set: { date in
-            let formatter = ISO8601DateFormatter()
-            formatter.timeZone = TimeZone(secondsFromGMT: 9 * 3600)
-            formatter.formatOptions = [.withInternetDateTime]
-            version.date = formatter.string(from: date)
-        })
+        Binding(get: { appVersionPickerDate(version.date) },
+                set: { version.date = appVersionISODate($0) })
     }
 
     private func updateSize() {

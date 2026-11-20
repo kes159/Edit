@@ -415,8 +415,7 @@ struct SourceEditor: View {
                 SourceTextField(title: "소스 부제목 (선택 사항)", text: $store.source.subtitle)
                 SourceTextField(title: "소스 설명 (선택 사항)", text: $store.source.sourceDescription, multiline: true)
                 SourceTextField(title: "웹사이트 (선택 사항)", text: $store.source.website, isURL: true)
-                SourceTextField(title: "Patreon URL (선택 사항)", text: $store.source.patreonURL, isURL: true)
-                Text("웹사이트와 Patreon URL은 NightFox JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
+                Text("웹사이트는 NightFox JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, -18)
@@ -758,33 +757,166 @@ func sourceHexColor(_ color: Color) -> String {
 }
 
 struct VersionEditor: View {
+    @Environment(\.dismiss) private var dismiss
     @Binding var version: AltVersion
+    @State private var draft: AltVersion
+    @State private var sizeText = ""
+    @State private var sizeUnit = "MB"
+    @State private var didLoadSize = false
+    private let units = ["bytes", "KB", "MB", "GB"]
+
+    init(version: Binding<AltVersion>) {
+        _version = version
+        _draft = State(initialValue: version.wrappedValue)
+    }
+
+    private var canSave: Bool {
+        !draft.downloadURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.date.isEmpty && draft.size > 0
+    }
+
     var body: some View {
-        Form {
-            Section("배포 파일") {
-                TextField("IPA / ADP 다운로드 URL *", text: $version.downloadURL).urlField()
-                TextField("파일 크기 (바이트) *", text: Binding(
-                    get: { version.size == 0 ? "" : String(version.size) },
-                    set: { version.size = Int($0) ?? 0 }
-                )).keyboardType(.numberPad)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                AppInputField(title: "IPA/ADP 다운로드 URL *", text: $draft.downloadURL,
+                              placeholder: "https://example.com/app.ipa", identifier: true)
+
+                HStack(alignment: .bottom, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 2) {
+                            Text("IPA/ADP 파일 크기")
+                            Text("*").foregroundStyle(.red)
+                        }
+                        .font(.subheadline)
+                        HStack(spacing: 8) {
+                            TextField("0.0", text: $sizeText)
+                                .keyboardType(.decimalPad)
+                            if !sizeText.isEmpty {
+                                Button { sizeText = "" } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                }
+                                .accessibilityLabel("파일 크기 지우기")
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 42)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("단위").font(.subheadline)
+                        Picker("단위", selection: $sizeUnit) {
+                            ForEach(units, id: \.self) { Text($0 == "bytes" ? "바이트" : $0).tag($0) }
+                        }
+                        .labelsHidden()
+                        .padding(.horizontal, 8)
+                        .frame(height: 42)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                }
+
+                AppInputField(title: "버전 번호 *", text: $draft.version, placeholder: "1.0.0")
+                AppInputField(title: "빌드 번호 (선택 사항)", text: $draft.buildVersion, placeholder: "123")
+                Text("빌드 번호는 현재 JSON 내보내기 형식에서 제외됩니다.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, -18)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 2) {
+                        Text("출시일")
+                        Text("*").foregroundStyle(.red)
+                    }
+                    .font(.subheadline)
+                    DatePicker("출시일", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                }
+                AppInputField(title: "변경 사항 (선택 사항)", text: $draft.localizedDescription,
+                              placeholder: "이번 버전의 변경 사항", multiline: true)
+                AppInputField(title: "최소 iOS 버전 (선택 사항)", text: $draft.minOSVersion, placeholder: "16.1")
+
+                DisclosureGroup("추가 설정") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        AppInputField(title: "표시 버전 (선택 사항)", text: $draft.marketingVersion)
+                        AppInputField(title: "최대 iOS 버전 (선택 사항)", text: $draft.maxOSVersion)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ADP 파일별 URL (선택 사항)").font(.subheadline)
+                            TextField("파일명=URL 형식, 한 줄에 하나씩", text: Binding(
+                                get: { draft.assetURLs.keys.sorted().map { "\($0)=\(draft.assetURLs[$0] ?? "")" }.joined(separator: "\n") },
+                                set: { draft.assetURLs = parsePairs($0) }
+                            ), axis: .vertical)
+                            .lineLimit(2...6)
+                            .padding(12)
+                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
+                    .padding(.top, 14)
+                }
+                .padding(14)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
             }
-            Section("버전 정보") {
-                TextField("버전 번호 *", text: $version.version)
-                TextField("표시 버전", text: $version.marketingVersion)
-                TextField("출시일 (YYYY-MM-DD) *", text: $version.date)
-                TextField("변경 사항", text: $version.localizedDescription, axis: .vertical).lineLimit(3...8)
-                TextField("최소 iOS 버전", text: $version.minOSVersion)
-                TextField("최대 iOS 버전", text: $version.maxOSVersion)
-            }
-            Section("ADP 파일별 URL") {
-                TextField("파일명=URL 형식, 한 줄에 하나씩", text: Binding(
-                    get: { version.assetURLs.keys.sorted().map { "\($0)=\(version.assetURLs[$0] ?? "")" }.joined(separator: "\n") },
-                    set: { version.assetURLs = parsePairs($0) }
-                ), axis: .vertical).lineLimit(2...6)
+            .frame(maxWidth: 760)
+            .padding(16)
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle("앱 버전 편집")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel("편집 취소")
             }
         }
-        .navigationTitle("버전 편집")
+        .safeAreaInset(edge: .bottom) {
+            Button {
+                version = draft
+                dismiss()
+            } label: {
+                Text("저장").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 11)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canSave)
+            .padding(16)
+            .background(Color(uiColor: .systemBackground))
+        }
+        .onAppear {
+            guard !didLoadSize else { return }
+            didLoadSize = true
+            if draft.size >= 1_000_000_000 { sizeUnit = "GB" }
+            else if draft.size >= 1_000_000 { sizeUnit = "MB" }
+            else if draft.size >= 1_000 { sizeUnit = "KB" }
+            else { sizeUnit = "bytes" }
+            sizeText = sizeDisplay(draft.size)
+        }
+        .onChange(of: sizeText) { _, _ in updateSize() }
+        .onChange(of: sizeUnit) { _, _ in sizeText = sizeDisplay(draft.size) }
         .keyboardDismissButton()
+    }
+
+    private var dateBinding: Binding<Date> {
+        Binding(get: { appVersionPickerDate(draft.date) },
+                set: { draft.date = appVersionISODate($0) })
+    }
+
+    private var sizeMultiplier: Double {
+        switch sizeUnit {
+        case "KB": 1_000
+        case "MB": 1_000_000
+        case "GB": 1_000_000_000
+        default: 1
+        }
+    }
+
+    private func sizeDisplay(_ bytes: Int) -> String {
+        guard bytes > 0 else { return "" }
+        let value = Double(bytes) / sizeMultiplier
+        return value.rounded() == value ? String(format: "%.0f", value) : String(value)
+    }
+
+    private func updateSize() {
+        let value = (Double(sizeText.replacingOccurrences(of: ",", with: ".")) ?? 0) * sizeMultiplier
+        draft.size = value.isFinite && value >= 0 && value <= Double(Int.max) ? Int(value.rounded()) : 0
     }
 }
 
