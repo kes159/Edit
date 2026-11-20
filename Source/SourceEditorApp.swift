@@ -43,15 +43,14 @@ struct RootView: View {
                 compactLayout
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-            switch result {
-            case .success(let url):
-                beginImport(url)
-            case .failure(let error):
-                if (error as NSError).code != NSUserCancelledError {
-                    store.message = "파일 선택기를 열지 못했습니다: \(error.localizedDescription)"
-                }
-            }
+        .sheet(isPresented: $importing) {
+            JSONImportPicker(
+                onPick: { url in
+                    importing = false
+                    beginImport(url)
+                },
+                onCancel: { importing = false }
+            )
         }
         .overlay {
             if let importProgress {
@@ -230,6 +229,36 @@ struct JSONTransferProgressIndicator: View, Animatable {
 private enum JSONImportError: LocalizedError {
     case invalidExtension
     var errorDescription: String? { "확장자가 .json인 파일만 선택할 수 있습니다." }
+}
+
+struct JSONImportPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        let onCancel: () -> Void
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { onCancel(); return }
+            onPick(url)
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+    }
 }
 
 struct WelcomeScreen: View {
