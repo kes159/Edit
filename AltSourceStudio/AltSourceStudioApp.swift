@@ -390,6 +390,7 @@ struct SourceEditor: View {
     }
 
     var body: some View {
+        ZStack(alignment: .topLeading) {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 HStack {
@@ -436,6 +437,20 @@ struct SourceEditor: View {
             .padding(.top, 16)
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
+        }
+        if let handleDragID,
+           let app = store.source.apps.first(where: { $0.bundleIdentifier == handleDragID }),
+           let frame = dragFrames["featured:\(handleDragID)"],
+           validReorderFrame(frame),
+           let previewY = safeReorderY(dragFingerY, offset: dragTouchOffset) {
+            featuredRowContent(app, selected: true)
+                .frame(width: frame.width)
+                .scaleEffect(1.025)
+                .shadow(color: .black.opacity(0.2), radius: 10, y: 6)
+                .position(x: frame.midX, y: previewY)
+                .allowsHitTesting(false)
+                .zIndex(1)
+        }
         }
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "featuredReorder")
@@ -484,10 +499,7 @@ struct SourceEditor: View {
             featuredRowContent(app, selected: true)
                 .contentShape(Rectangle())
                 .reorderFrame(id: "featured:\(app.bundleIdentifier)", in: "featuredReorder")
-                .offset(y: featuredDragOffset(for: app.bundleIdentifier))
-                .scaleEffect(handleDragID == app.bundleIdentifier ? 1.025 : 1)
-                .shadow(color: .black.opacity(handleDragID == app.bundleIdentifier ? 0.2 : 0), radius: 10, y: 6)
-                .zIndex(handleDragID == app.bundleIdentifier ? 1 : 0)
+                .opacity(handleDragID == app.bundleIdentifier ? 0.001 : 1)
         } else {
             featuredRowContent(app, selected: false)
         }
@@ -565,8 +577,9 @@ struct SourceEditor: View {
     }
 
     private func updateFeaturedDrag(_ id: String, y: CGFloat) {
+        guard y.isFinite else { return }
         if handleDragID == nil {
-            dragFrames = rowFrames
+            dragFrames = rowFrames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames["featured:\(id)"] else { return }
             dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.featuredApps.enumerated().map { ($0.element, $0.offset) })
             dragTouchOffset = y - frame.midY
@@ -574,19 +587,16 @@ struct SourceEditor: View {
         }
         guard handleDragID == id else { return }
         dragFingerY = y
-        let center = y - dragTouchOffset
-        let slots = dragFrames.filter { $0.key.hasPrefix("featured:") }.sorted { $0.value.midY < $1.value.midY }
+        guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
+        let slots = dragFrames.filter {
+            $0.key.hasPrefix("featured:") && dragSlotIndices[String($0.key.dropFirst(9))] != nil
+        }.sorted { $0.value.midY < $1.value.midY }
         if let target = slots.enumerated().min(by: {
             abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
         })?.offset,
            let slotIndex = dragSlotIndices[String(slots[target].key.dropFirst(9))] {
             moveFeatured(id, to: slotIndex)
         }
-    }
-
-    private func featuredDragOffset(for id: String) -> CGFloat {
-        guard handleDragID == id, let frame = rowFrames["featured:\(id)"] else { return 0 }
-        return dragFingerY - dragTouchOffset - frame.midY
     }
 
     private func endFeaturedDrag(_ id: String, y: CGFloat) {

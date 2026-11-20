@@ -1,6 +1,78 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+func validReorderFrame(_ frame: CGRect) -> Bool {
+    frame.origin.x.isFinite && frame.origin.y.isFinite
+        && frame.width.isFinite && frame.height.isFinite
+        && frame.midX.isFinite && frame.midY.isFinite
+        && frame.width > 0 && frame.height > 0
+        && abs(frame.midX) < 100_000 && abs(frame.midY) < 100_000
+}
+
+func safeReorderY(_ fingerY: CGFloat, offset: CGFloat) -> CGFloat? {
+    let y = fingerY - offset
+    return y.isFinite && abs(y) < 100_000 ? y : nil
+}
+
+struct ReorderTouchSurface: UIViewRepresentable {
+    let frame: CGRect
+    let onTap: () -> Void
+    let onChange: (CGFloat) -> Void
+    let onEnd: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        tap.delegate = context.coordinator
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+        let press = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pressed(_:)))
+        press.minimumPressDuration = 0.4
+        press.allowableMovement = 10
+        press.delegate = context.coordinator
+        press.cancelsTouchesInView = false
+        view.addGestureRecognizer(press)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.frame = frame
+        context.coordinator.onTap = onTap
+        context.coordinator.onChange = onChange
+        context.coordinator.onEnd = onEnd
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var frame: CGRect = .zero
+        var onTap: (() -> Void)?
+        var onChange: ((CGFloat) -> Void)?
+        var onEnd: ((CGFloat) -> Void)?
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            if gesture.state == .ended { onTap?() }
+        }
+
+        @objc func pressed(_ gesture: UILongPressGestureRecognizer) {
+            guard validReorderFrame(frame), let view = gesture.view else { return }
+            let y = frame.minY + gesture.location(in: view).y
+            guard y.isFinite else { return }
+            switch gesture.state {
+            case .began, .changed: onChange?(y)
+            case .ended, .cancelled: onEnd?(y)
+            default: break
+            }
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
+    }
+}
+
 struct ReorderRowFrames: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
 
@@ -137,15 +209,20 @@ struct AppsScreen: View {
                                         onEnd: { y in endDrag(app.editorID, y: y) }
                                     )
                                 }
-                                Button {
-                                    openEditor(for: app.editorID)
-                                } label: {
-                                    appCard(app)
-                                }
-                                .buttonStyle(.plain)
-                                .pressToReorder(in: "appsReorder",
+                                appCard(app)
+                                    .overlay {
+                                        GeometryReader { geometry in
+                                            ReorderTouchSurface(
+                                                frame: geometry.frame(in: .named("appsReorder")),
+                                                onTap: { openEditor(for: app.editorID) },
                                                 onChange: { y in updateDrag(app.editorID, y: y) },
-                                                onEnd: { y in endDrag(app.editorID, y: y) })
+                                                onEnd: { y in endDrag(app.editorID, y: y) }
+                                            )
+                                        }
+                                    }
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityAction { openEditor(for: app.editorID) }
                             }
                             .contentShape(Rectangle())
                             .reorderFrame(id: "app:\(app.editorID.uuidString)", in: "appsReorder")
@@ -162,12 +239,14 @@ struct AppsScreen: View {
         }
         if let draggedAppID,
            let app = store.source.apps.first(where: { $0.editorID == draggedAppID }),
-           let frame = dragFrames["app:\(draggedAppID.uuidString)"] {
+           let frame = dragFrames["app:\(draggedAppID.uuidString)"],
+           validReorderFrame(frame),
+           let previewY = safeReorderY(dragFingerY, offset: dragTouchOffset) {
             dragPreview(app)
                 .frame(width: frame.width)
                 .scaleEffect(1.025)
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
-                .position(x: frame.midX, y: dragFingerY - dragTouchOffset)
+                .position(x: frame.midX, y: previewY)
                 .allowsHitTesting(false)
                 .zIndex(1)
         }
@@ -247,9 +326,10 @@ struct AppsScreen: View {
     }
 
     private func updateDrag(_ id: UUID, y: CGFloat) {
+        guard y.isFinite else { return }
         let key = "app:\(id.uuidString)"
         if draggedAppID == nil {
-            dragFrames = rowFrameCache.frames
+            dragFrames = rowFrameCache.frames.filter { validReorderFrame($0.value) }
             guard let frame = dragFrames[key] else { return }
             dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.apps.enumerated().map { ($0.element.editorID, $0.offset) })
             dragTouchOffset = y - frame.midY
@@ -257,7 +337,7 @@ struct AppsScreen: View {
         }
         guard draggedAppID == id else { return }
         dragFingerY = y
-        let center = y - dragTouchOffset
+        guard let center = safeReorderY(y, offset: dragTouchOffset) else { return }
         let slots = dragFrames.filter { $0.key.hasPrefix("app:") }.sorted { $0.value.midY < $1.value.midY }
         guard let target = slots.enumerated().min(by: {
             abs($0.element.value.midY - center) < abs($1.element.value.midY - center)
