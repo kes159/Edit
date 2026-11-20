@@ -55,85 +55,8 @@ extension View {
     }
 }
 
-private enum AppReorderTransfer {
-    static let contentType = UTType(exportedAs: "app.altstudio.sourcecreator.app-reorder", conformingTo: .data)
-
-    static func provider(for id: UUID) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let data = Data(id.uuidString.utf8)
-        provider.registerDataRepresentation(for: contentType, visibility: .ownProcess) { completion in
-            completion(data, nil)
-            return nil
-        }
-        return provider
-    }
-
-    static func receive(_ info: DropInfo, completion: @escaping (UUID) -> Void) -> Bool {
-        guard let provider = info.itemProviders(for: [contentType.identifier]).first else { return false }
-        _ = provider.loadDataRepresentation(for: contentType) { data, _ in
-            guard let data,
-                  let id = UUID(uuidString: String(decoding: data, as: UTF8.self)) else { return }
-            DispatchQueue.main.async { completion(id) }
-        }
-        return true
-    }
-}
-
-private final class AppReorderSession {
-    var draggedID: UUID?
-}
-
-private struct AppReorderDropDelegate: DropDelegate {
-    let targetID: UUID
-    let store: SourceStore
-    let session: AppReorderSession
-    let didDrop: (UUID) -> Void
-
-    func dropEntered(info: DropInfo) {
-        guard let draggedID = session.draggedID else { return }
-        moveApp(draggedID)
-    }
-
-    private func moveApp(_ draggedID: UUID) {
-        guard draggedID != targetID,
-              let sourceIndex = store.source.apps.firstIndex(where: { $0.editorID == draggedID }),
-              let targetIndex = store.source.apps.firstIndex(where: { $0.editorID == targetID })
-        else { return }
-        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.85)) {
-            store.source.apps.move(
-                fromOffsets: IndexSet(integer: sourceIndex),
-                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
-            )
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        AppReorderTransfer.receive(info) { draggedID in
-            moveApp(draggedID)
-            didDrop(draggedID)
-            session.draggedID = nil
-        }
-    }
-}
-
-private struct AppListDropDelegate: DropDelegate {
-    let session: AppReorderSession
-    let didDrop: (UUID) -> Void
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        AppReorderTransfer.receive(info) { draggedID in
-            didDrop(draggedID)
-            session.draggedID = nil
-        }
-    }
+private final class ReorderFrameCache {
+    var frames: [String: CGRect] = [:]
 }
 
 struct AppsScreen: View {
@@ -144,8 +67,7 @@ struct AppsScreen: View {
     @State private var showingEditor = false
     @State private var lastDraggedAppID: UUID?
     @State private var lastDragEndedAt: Date = .distantPast
-    @State private var nativeDragSession = AppReorderSession()
-    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var rowFrameCache = ReorderFrameCache()
     @State private var dragFrames: [String: CGRect] = [:]
     @State private var dragSlotIndices: [UUID: Int] = [:]
     @State private var draggedAppID: UUID?
@@ -219,27 +141,15 @@ struct AppsScreen: View {
                                     openEditor(for: app.editorID)
                                 } label: {
                                     appCard(app)
-                                        .onDrag {
-                                            nativeDragSession.draggedID = app.editorID
-                                            return AppReorderTransfer.provider(for: app.editorID)
-                                        } preview: {
-                                            appCard(app)
-                                        }
                                 }
                                 .buttonStyle(.plain)
+                                .pressToReorder(in: "appsReorder",
+                                                onChange: { y in updateDrag(app.editorID, y: y) },
+                                                onEnd: { y in endDrag(app.editorID, y: y) })
                             }
                             .contentShape(Rectangle())
                             .reorderFrame(id: "app:\(app.editorID.uuidString)", in: "appsReorder")
                             .opacity(draggedAppID == app.editorID ? 0.001 : 1)
-                            .onDrop(of: [AppReorderTransfer.contentType], delegate: AppReorderDropDelegate(
-                                targetID: app.editorID,
-                                store: store,
-                                session: nativeDragSession,
-                                didDrop: { id in
-                                    lastDraggedAppID = id
-                                    lastDragEndedAt = Date()
-                                }
-                            ))
                             }
                         }
                     }
@@ -264,14 +174,7 @@ struct AppsScreen: View {
         }
         .background(Color(uiColor: .systemBackground))
         .coordinateSpace(name: "appsReorder")
-        .onDrop(of: [AppReorderTransfer.contentType], delegate: AppListDropDelegate(
-            session: nativeDragSession,
-            didDrop: { id in
-                lastDraggedAppID = id
-                lastDragEndedAt = Date()
-            }
-        ))
-        .onPreferenceChange(ReorderRowFrames.self) { rowFrames = $0 }
+        .onPreferenceChange(ReorderRowFrames.self) { rowFrameCache.frames = $0 }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $showingEditor) {
             if let editorAppID,
@@ -346,7 +249,7 @@ struct AppsScreen: View {
     private func updateDrag(_ id: UUID, y: CGFloat) {
         let key = "app:\(id.uuidString)"
         if draggedAppID == nil {
-            dragFrames = rowFrames
+            dragFrames = rowFrameCache.frames
             guard let frame = dragFrames[key] else { return }
             dragSlotIndices = Dictionary(uniqueKeysWithValues: store.source.apps.enumerated().map { ($0.element.editorID, $0.offset) })
             dragTouchOffset = y - frame.midY
