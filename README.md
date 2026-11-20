@@ -41,6 +41,7 @@
 - 터미널에서는 `./scripts/build-ipa.sh`로 서명되지 않은 IPA를 `build/AltSourceStudio.ipa`에 만들 수 있습니다.
 - GitHub의 **Actions → Build AltStudio.app IPA → Run workflow**를 수동 실행하면 빌드 결과에 `Source_Editor.ipa` 아티팩트와 **iPhone/iPad Safari download** 링크가 표시됩니다. iPhone/iPad에서는 결과 화면의 링크를 눌러 비공개 저장소의 Release에서 IPA를 직접 받으세요. Actions의 아티팩트 미리보기 화면에서 파일을 저장하면 일부 환경에서 끝부분이 잘린 파일이 만들어질 수 있습니다.
 - 수동 실행으로 만든 Release는 실행 번호마다 별도로 생성되며 비공개 저장소 안에만 표시됩니다. IPA는 서명되지 않았으므로 Feather로 서명한 뒤 설치해야 합니다. 파일의 생성일과 수정일은 다운로드하는 기기와 방식에 따라 다운로드 시각으로 표시될 수 있습니다.
+- **Actions → Delete past runs and releases → Run workflow**를 수동 실행하면 완료된 워크플로 기록과 모든 Release, 각 Release에 연결된 태그를 삭제합니다. 실행 중인 정리 작업과 Release에 연결되지 않은 태그는 남습니다.
 
 ## 범위
 
