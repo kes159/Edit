@@ -18,11 +18,13 @@ final class ReorderAutoScroller: NSObject {
     weak var scrollView: UIScrollView?
     private var displayLink: CADisplayLink?
     private var fingerY: CGFloat = 0
+    private var bottomBoundary: CGFloat?
 
     func attach(_ scrollView: UIScrollView) { self.scrollView = scrollView }
 
     func start(at y: CGFloat) {
         fingerY = y
+        bottomBoundary = scrollView.map { visibleBottom(of: $0) }
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(scrollIfNeeded(_:)))
         link.add(to: .main, forMode: .common)
@@ -34,6 +36,7 @@ final class ReorderAutoScroller: NSObject {
     func stop() {
         displayLink?.invalidate()
         displayLink = nil
+        bottomBoundary = nil
     }
 
     @objc private func scrollIfNeeded(_ link: CADisplayLink) {
@@ -43,14 +46,45 @@ final class ReorderAutoScroller: NSObject {
         let edge = min(90, height * 0.18)
         let strength: CGFloat
         if fingerY < edge { strength = -min(1, (edge - fingerY) / edge) }
-        else if fingerY > height - edge { strength = min(1, (fingerY - height + edge) / edge) }
-        else { return }
+        else {
+            let bottom = bottomBoundary ?? visibleBottom(of: scrollView)
+            let start = max(edge + 40, bottom - 150)
+            guard fingerY > start else { return }
+            strength = max(0.3, min(1, (fingerY - start) / max(1, bottom - start)))
+        }
         let minY = -scrollView.adjustedContentInset.top
         let maxY = max(minY, scrollView.contentSize.height - height + scrollView.adjustedContentInset.bottom)
         let frameDuration = min(max(link.targetTimestamp - link.timestamp, 1.0 / 120), 1.0 / 30)
-        let next = min(max(scrollView.contentOffset.y + strength * 900 * frameDuration, minY), maxY)
+        let speed: CGFloat = strength > 0 ? 1_500 : 900
+        let next = min(max(scrollView.contentOffset.y + strength * speed * frameDuration, minY), maxY)
         guard next.isFinite, abs(next - scrollView.contentOffset.y) > 0.1 else { return }
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: next), animated: false)
+    }
+
+    private func visibleBottom(of scrollView: UIScrollView) -> CGFloat {
+        let height = scrollView.bounds.height
+        let fallbackInset: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 100 : 24
+        var bottom = height - max(scrollView.safeAreaInsets.bottom, fallbackInset)
+        if let window = scrollView.window, let tabTop = tabBarTop(in: window, window: window) {
+            let viewportTop = scrollView.convert(scrollView.bounds, to: window).minY
+            let tabY = tabTop - viewportTop
+            if tabY.isFinite && tabY > 0 && tabY < height { bottom = min(bottom, tabY) }
+        }
+        return max(height * 0.4, bottom)
+    }
+
+    private func tabBarTop(in view: UIView, window: UIWindow) -> CGFloat? {
+        var top: CGFloat?
+        if let tabBar = view as? UITabBar, !tabBar.isHidden, tabBar.alpha > 0.1 {
+            let frame = tabBar.convert(tabBar.bounds, to: window)
+            if frame.width > 0, frame.height > 0, frame.intersects(window.bounds) { top = frame.minY }
+        }
+        for child in view.subviews {
+            if let candidate = tabBarTop(in: child, window: window) {
+                top = min(top ?? candidate, candidate)
+            }
+        }
+        return top
     }
 }
 
