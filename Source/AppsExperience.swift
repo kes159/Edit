@@ -1117,6 +1117,7 @@ private struct AddVersionSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("출시일 *").font(.subheadline)
                         DatePicker("출시일", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
+                            .environment(\.locale, Locale(identifier: "ko_KR"))
                             .labelsHidden()
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 12)

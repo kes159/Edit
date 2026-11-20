@@ -178,6 +178,7 @@ private struct NewsEditor: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("게시일").font(.subheadline)
                     DatePicker("게시일", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
+                        .environment(\.locale, Locale(identifier: "ko_KR"))
                         .labelsHidden().frame(maxWidth: .infinity)
                         .padding(8)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))

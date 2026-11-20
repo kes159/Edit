@@ -863,6 +863,7 @@ struct VersionEditor: View {
                     }
                     .font(.subheadline)
                     DatePicker("출시일", selection: dateBinding, displayedComponents: [.date, .hourAndMinute])
+                        .environment(\.locale, Locale(identifier: "ko_KR"))
                         .labelsHidden()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)
