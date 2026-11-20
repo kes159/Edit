@@ -484,6 +484,20 @@ struct ReorderFloatingPreview<Content: View>: View {
     }
 }
 
+struct EditorListActionIcon: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: systemName == "square.and.pencil" ? 30 : 26,
+                   height: systemName == "square.and.pencil" ? 30 : 26)
+            .offset(y: systemName == "square.and.pencil" ? -3 : 0)
+            .frame(width: 36, height: 36)
+    }
+}
+
 struct AppsScreen: View {
     @EnvironmentObject private var store: SourceStore
     @EnvironmentObject private var diagnostics: ReorderDiagnostics
@@ -535,17 +549,11 @@ struct AppsScreen: View {
                         store.source.apps.append(app)
                         openEditor(for: app.editorID)
                     } label: {
-                        Image(systemName: "plus.circle")
-                            .resizable().scaledToFit()
-                            .frame(width: 26, height: 26)
-                            .frame(width: 36, height: 36)
+                        EditorListActionIcon(systemName: "plus.circle")
                     }
                     .accessibilityLabel("앱 추가")
                     Button { editing.toggle() } label: {
-                        Image(systemName: editing ? "checkmark.circle" : "square.and.pencil")
-                            .resizable().scaledToFit()
-                            .frame(width: 26, height: 26)
-                            .frame(width: 36, height: 36)
+                        EditorListActionIcon(systemName: editing ? "checkmark.circle" : "square.and.pencil")
                     }
                     .accessibilityLabel(editing ? "편집 완료" : "앱 목록 편집")
                 }

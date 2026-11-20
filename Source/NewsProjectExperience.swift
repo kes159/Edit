@@ -38,10 +38,10 @@ struct NewsScreen: View {
                         store.source.news.insert(item, at: 0)
                         newEditorIndex = 0
                         showingNewEditor = true
-                    } label: { Image(systemName: "plus.circle").font(.title3) }
+                    } label: { EditorListActionIcon(systemName: "plus.circle") }
                     .accessibilityLabel("뉴스 추가")
                     Button { editing.toggle() } label: {
-                        Image(systemName: editing ? "checkmark.circle" : "square.and.pencil").font(.title3)
+                        EditorListActionIcon(systemName: editing ? "checkmark.circle" : "square.and.pencil")
                     }
                     .accessibilityLabel(editing ? "편집 완료" : "뉴스 편집")
                 }
