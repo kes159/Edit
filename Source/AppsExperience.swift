@@ -723,6 +723,7 @@ struct AppEditor: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 SourceImageField(title: "아이콘", url: $app.iconURL, isHeader: false,
+                                 confirmDeletion: true,
                                  importedPreview: app.iconPreviewData,
                                  clearImportedPreview: { app.iconPreviewData = nil },
                                  saveImportedPreview: saveExtractedIcon,
