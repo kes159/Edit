@@ -304,8 +304,6 @@ private struct NewsPosterField: View {
                 urlDraft = url
                 showingURLSheet = true
             }
-        } message: {
-            Text("사진·파일에서 고른 이미지는 Cloudinary에 공개 업로드되며 생성된 URL이 JSON에 저장됩니다.")
         }
         .photosPicker(isPresented: $showingPhotos, selection: $selectedPhoto, matching: .images)
         .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.image]) { result in
