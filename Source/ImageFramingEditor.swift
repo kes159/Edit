@@ -81,8 +81,6 @@ struct ImageFramingEditor: View {
                 }
                 Text("사진을 끌어 위치를 바꾸고 두 손가락으로 확대·축소하세요.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Text("적용한 이미지만 Cloudinary에 공개 업로드됩니다. 원본 사진은 변경되지 않습니다.")
-                    .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .padding(16)
             .navigationTitle("이미지 위치·크기 조정")

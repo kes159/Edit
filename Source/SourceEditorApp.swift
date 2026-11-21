@@ -759,8 +759,6 @@ struct SourceImageField: View {
             if let importedUploadError {
                 Text(importedUploadError).font(.caption).foregroundStyle(.red)
             }
-            Text("사진을 선택한 뒤 위치·크기를 조정하고 적용하면 Cloudinary에 공개 업로드됩니다.")
-                .font(.caption2).foregroundStyle(.secondary)
         }
         .confirmationDialog("이미지 추가", isPresented: $showingImageOptions, titleVisibility: .visible) {
             Button("사진 앱에서 선택") { showingPhotos = true }
@@ -772,8 +770,6 @@ struct SourceImageField: View {
                     }
                 }
             }
-        } message: {
-            Text("선택한 이미지는 Cloudinary에 공개 업로드됩니다.")
         }
         .photosPicker(isPresented: $showingPhotos, selection: $selectedImage, matching: .images)
         .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.image]) { result in
