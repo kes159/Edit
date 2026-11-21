@@ -21,7 +21,7 @@
   A00000000000000000000029 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
   A00000000000000000000034 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPackageScanner.swift; sourceTree = "<group>"; };
   A00000000000000000000037 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubUpload.swift; sourceTree = "<group>"; };
-  A00000000000000000000039 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImgurImageUploader.swift; sourceTree = "<group>"; };
+  A00000000000000000000039 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudinaryImageUploader.swift; sourceTree = "<group>"; };
   A00000000000000000000021 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
   A00000000000000000000018 = {isa = PBXBuildFile; fileRef = A00000000000000000000015; };
   A00000000000000000000019 = {isa = PBXBuildFile; fileRef = A00000000000000000000016; };
