@@ -35,8 +35,8 @@ enum CloudinaryImageUploader {
             throw UploadError.invalidImage
         }
         let image = UIImage(cgImage: thumbnail)
-        let isJPEG = purpose == .poster
-        guard let encoded = isJPEG ? image.jpegData(compressionQuality: 0.85) : image.pngData() else {
+        // PNG preserves the framing editor's translucent padding for every image type.
+        guard let encoded = image.pngData() else {
             throw UploadError.invalidImage
         }
         guard encoded.count <= maximumUploadBytes else { throw UploadError.imageTooLarge }
@@ -44,9 +44,7 @@ enum CloudinaryImageUploader {
         let boundary = UUID().uuidString
         var body = Data()
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"upload_preset\"\r\n\r\n\(uploadPreset)\r\n".utf8))
-        let filename = isJPEG ? "image.jpg" : "image.png"
-        let contentType = isJPEG ? "image/jpeg" : "image/png"
-        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(contentType)\r\n\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n".utf8))
         body.append(encoded)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
 
