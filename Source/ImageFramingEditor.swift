@@ -34,16 +34,6 @@ enum ImageFrameProfile: Equatable {
         }
     }
 
-    var detail: String {
-        switch self {
-        case .sourceIcon: return "소스 아이콘 · 1:1 정사각형 / 원 안쪽이 SideStore 표시 영역입니다."
-        case .appIcon: return "앱 아이콘 · 1:1 정사각형 / 둥근 모서리 미리보기"
-        case .header: return "헤더 배경 · 원본 비율 / SideStore의 배경 표시 범위는 기기와 화면 크기에 따라 달라집니다."
-        case .poster: return "뉴스 이미지 · SideStore 뉴스 화면의 3:2 비율"
-        case .screenshot: return "스크린샷 · 원본 비율 / 적용한 이미지 크기가 자동 입력됩니다."
-        }
-    }
-
     func fitScale(image: CGSize, canvas: CGSize) -> CGFloat {
         if self == .sourceIcon {
             // Fit all four corners inside SideStore's circular source icon mask.
@@ -82,7 +72,6 @@ struct ImageFramingEditor: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
-                Text(profile.detail).font(.subheadline).multilineTextAlignment(.center)
                 GeometryReader { geometry in
                     let ratio = output.width / output.height
                     let width = max(1, min(520, min(geometry.size.width, geometry.size.height * ratio)))
