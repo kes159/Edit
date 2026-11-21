@@ -81,7 +81,7 @@ final class SourceStore: ObservableObject {
             applyImportedJSON(try Self.decodeJSON(data), data: data)
             return true
         } catch {
-            message = "JSON을 읽지 못했습니다: \(error.localizedDescription)"
+            message = "JSON을 불러오지 못했습니다: \(error.localizedDescription)"
             return false
         }
     }
@@ -100,7 +100,7 @@ final class SourceStore: ObservableObject {
         importedJSON = data
         UserDefaults.standard.set(data, forKey: "sourceImportedJSON")
         source = imported
-        message = "JSON을 가져왔습니다."
+        message = "JSON을 불러왔습니다."
     }
 
     var issues: [String] {
