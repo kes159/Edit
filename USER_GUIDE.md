@@ -112,7 +112,7 @@ iPhone과 좁은 iPad 창에서는 하단 탭으로 이동합니다. 넓은 iPad
 | 소스 이름 | 사용자가 알아볼 수 있는 이름 입력 |
 | 소스 부제목 | 소스를 짧게 소개하는 문구 입력 |
 | 소스 설명 | 제공하는 앱과 소스의 특징 설명 |
-| 웹사이트 | 편집은 가능하지만 현재 내보내기 형식에서는 제외 |
+| 웹사이트 | 선택 사항. 입력하면 JSON의 `website`에 포함되며, 비워 두면 생략 |
 
 ### 이미지 선택과 공개 URL
 
@@ -519,7 +519,8 @@ https://raw.githubusercontent.com/your-name/your-source/main/Source.json
 | 최소 iOS 버전 누락 | `minOSVersion`에 `16.1` 입력 |
 | 소스 식별자 누락 | 소스 이름의 영문·숫자로 식별자 생성, 사용할 문자가 없으면 `com.source.repository` 사용 |
 | 빈 헤더·뉴스 이미지 | 비어 있는 `headerURL`·`imageURL` 제거 |
-| 소스 웹사이트·후원 정보 | `website`, `patreonURL`, `patreon` 제거 |
+| 소스 웹사이트 | 입력하면 `website` 포함, 비어 있거나 공백뿐이면 생략. 가져온 웹사이트를 지워도 출력에서 제거 |
+| 소스 후원 정보 | `patreonURL`, `patreon` 제거 |
 | 앱의 일부 필드 | `marketplaceID`, `Build`, `patreon`, `iconPreviewData` 제거 |
 | 버전 빌드 번호 | `buildVersion` 제거 |
 | 뉴스 링크 | `url` 제거 |
@@ -569,7 +570,7 @@ JSON은 내보내기 규칙을 적용한 소스 파일입니다. 로컬 이미�
 
 이 앱은 임의의 JSON을 편집하는 범용 편집기가 아니라 소스 JSON 구조를 대상으로 합니다.
 
-### 저장하거나 업로드한 JSON에 웹사이트·빌드 번호·뉴스 URL이 없어요
+### 저장하거나 업로드한 JSON에 빌드 번호·뉴스 URL이 없어요
 
 현재 변환 규칙에서 해당 필드를 제외하기 때문입니다. [JSON 변환 규칙](#13-json-변환-규칙-이해하기)을 확인하세요.
 

@@ -5,7 +5,7 @@ enum SideStoreJSONFormatter {
     static func encode(_ source: Source, preserving originalData: Data?) throws -> Data {
         let original = originalData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         var result = original
-        update(&result, from: source, keys: ["name", "subtitle", "description", "iconURL", "tintColor", "featuredApps", "headerURL", "fediUsername", "identifier"])
+        update(&result, from: source, keys: ["name", "subtitle", "description", "iconURL", "tintColor", "featuredApps", "headerURL", "website", "fediUsername", "identifier"])
         result["name"] = source.name
         result["subtitle"] = source.subtitle
         result["description"] = source.sourceDescription
@@ -27,7 +27,7 @@ enum SideStoreJSONFormatter {
                 .split(separator: "-").joined(separator: "-")
             result["identifier"] = "com.\(slug.isEmpty ? "source" : slug).repository"
         }
-        for key in ["website", "patreonURL", "patreon"] { result.removeValue(forKey: key) }
+        for key in ["patreonURL", "patreon"] { result.removeValue(forKey: key) }
         removeEmpty(&result, key: "headerURL")
         return try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys])
     }

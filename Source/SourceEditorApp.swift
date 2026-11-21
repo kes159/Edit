@@ -432,7 +432,7 @@ struct SourceEditor: View {
                 SourceTextField(title: "소스 부제목 (선택 사항)", text: $store.source.subtitle)
                 SourceTextField(title: "소스 설명 (선택 사항)", text: $store.source.sourceDescription, multiline: true)
                 SourceTextField(title: "웹사이트 (선택 사항)", text: $store.source.website, isURL: true)
-                Text("웹사이트는 현재 JSON 변환 규칙에 따라 내보내기에서 제외됩니다.")
+                Text("웹사이트를 입력하면 JSON에 포함되며, 비워 두면 생략됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, -18)
