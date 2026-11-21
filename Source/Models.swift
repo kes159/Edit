@@ -101,6 +101,8 @@ struct SourceApp: Codable {
 }
 
 struct Screenshot: Codable {
+    // Stable editor identity for asynchronous image uploads; not exported to JSON.
+    var editorID = UUID()
     var imageURL = ""
     var width = ""
     var height = ""

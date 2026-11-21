@@ -677,12 +677,22 @@ struct SourceImageField: View {
     var clearImportedPreview: (() -> Void)? = nil
     var saveImportedPreview: (() -> Void)? = nil
     var isSavingImportedPreview = false
+    var uploadPurpose: CloudinaryImageUploader.Purpose = .artwork
+    var onImageUploaded: ((CloudinaryUploadedImage) -> Void)? = nil
+    var deletionTitle: String? = nil
     @State private var selectedImage: PhotosPickerItem?
     @State private var localPreview: Data?
+    @State private var showingImageOptions = false
+    @State private var showingPhotos = false
+    @State private var showingFiles = false
+    @State private var uploadTask: Task<Void, Never>?
+    @State private var uploadID: UUID?
+    @State private var uploadError: String?
     @State private var urlPreviewImage: UIImage?
     @State private var loadingURLPreview = false
     @State private var showingDeleteAlert = false
 
+    private var uploading: Bool { uploadID != nil }
     private var previewData: Data? { localPreview ?? importedPreview }
     private var previewURL: URL? {
         let text = url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -703,7 +713,7 @@ struct SourceImageField: View {
                     } else {
                         Rectangle().fill(Color(uiColor: .secondarySystemBackground))
                             .overlay {
-                                if loadingURLPreview {
+                                if loadingURLPreview || uploading {
                                     ProgressView()
                                 } else {
                                     Image(systemName: "photo").foregroundStyle(.secondary)
@@ -713,18 +723,23 @@ struct SourceImageField: View {
                 }
                 .frame(width: isHeader ? 96 : 70, height: isHeader ? 76 : 70)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay {
+                    if uploading {
+                        ProgressView().padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.subheadline)
                     TextField("이미지 URL", text: $url)
                         .urlField()
+                        .disabled(uploading)
                         .padding(.horizontal, 12)
                         .frame(height: 38)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                     HStack {
-                        PhotosPicker(selection: $selectedImage, matching: .images) {
-                            Text("이미지 선택")
-                        }
+                        Button(uploading ? "업로드 중…" : "이미지 선택") { showingImageOptions = true }
+                            .disabled(uploading)
                         Spacer()
                         if !url.isEmpty || previewData != nil {
                             Button("삭제", role: .destructive) {
@@ -732,6 +747,7 @@ struct SourceImageField: View {
                                 else { deleteImage() }
                             }
                             .foregroundStyle(.red)
+                            .disabled(uploading)
                         }
                     }
                     .font(.subheadline)
@@ -745,21 +761,97 @@ struct SourceImageField: View {
                         .disabled(isSavingImportedPreview)
                         .font(.subheadline)
                 }
-                Text("아이콘 파일은 미리보기용입니다. JSON에는 공개 이미지 URL이 필요합니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if importedPreview != nil, url.isEmpty {
+                    Button("추출한 아이콘 업로드 다시 시도") {
+                        if let importedPreview { startUpload(clearsImportedPreview: false) { importedPreview } }
+                    }
+                    .disabled(uploading)
+                    .font(.subheadline)
+                }
+            }
+            Text("선택한 이미지는 Cloudinary에 공개 업로드되며 URL이 JSON에 저장됩니다.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .confirmationDialog("이미지 추가", isPresented: $showingImageOptions, titleVisibility: .visible) {
+            Button("사진 앱에서 선택") { showingPhotos = true }
+            Button("파일 앱에서 선택") { showingFiles = true }
+        } message: {
+            Text("선택한 이미지는 Cloudinary에 공개 업로드됩니다.")
+        }
+        .photosPicker(isPresented: $showingPhotos, selection: $selectedImage, matching: .images)
+        .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.image]) { result in
+            switch result {
+            case .success(let fileURL):
+                startUpload {
+                    try await Task.detached(priority: .userInitiated) {
+                        let access = fileURL.startAccessingSecurityScopedResource()
+                        defer { if access { fileURL.stopAccessingSecurityScopedResource() } }
+                        return try Data(contentsOf: fileURL)
+                    }.value
+                }
+            case .failure(let error):
+                if (error as NSError).code != NSUserCancelledError { uploadError = error.localizedDescription }
             }
         }
         .onChange(of: selectedImage) { _, item in
-            Task { localPreview = try? await item?.loadTransferable(type: Data.self) }
+            guard let item else { return }
+            startUpload {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw ImageSelectionError.unreadable
+                }
+                return data
+            }
         }
-        .alert(isHeader ? "헤더 이미지를 삭제하시겠습니까?" : "아이콘을 삭제하시겠습니까?",
+        .task(id: importedPreview) {
+            if let importedPreview, url.isEmpty { startUpload(clearsImportedPreview: false) { importedPreview } }
+        }
+        .alert(deletionTitle ?? (isHeader ? "헤더 이미지를 삭제하시겠습니까?" : "아이콘을 삭제하시겠습니까?"),
                isPresented: $showingDeleteAlert) {
             Button("예", role: .destructive) { deleteImage() }
             Button("아니오", role: .cancel) {}
         }
+        .alert("이미지를 추가하지 못했습니다", isPresented: Binding(
+            get: { uploadError != nil }, set: { if !$0 { uploadError = nil } }
+        )) {
+            Button("확인", role: .cancel) { uploadError = nil }
+        } message: { Text(uploadError ?? "") }
         .onChange(of: url) { _, _ in localPreview = nil }
         .task(id: url) { await loadURLPreview() }
+        .onDisappear {
+            uploadTask?.cancel()
+            uploadID = nil
+            localPreview = nil
+        }
+    }
+
+    private func startUpload(clearsImportedPreview: Bool = true, loadData: @escaping () async throws -> Data) {
+        uploadTask?.cancel()
+        let id = UUID()
+        uploadID = id
+        uploadError = nil
+        uploadTask = Task {
+            defer {
+                if uploadID == id {
+                    uploadID = nil
+                    localPreview = nil
+                    selectedImage = nil
+                }
+            }
+            do {
+                let data = try await loadData()
+                try Task.checkCancellation()
+                guard uploadID == id else { return }
+                localPreview = data
+                let image = try await CloudinaryImageUploader.uploadImage(data, purpose: uploadPurpose)
+                try Task.checkCancellation()
+                guard uploadID == id else { return }
+                url = image.url.absoluteString
+                if clearsImportedPreview { clearImportedPreview?() }
+                onImageUploaded?(image)
+            } catch {
+                if !Task.isCancelled, uploadID == id { uploadError = error.localizedDescription }
+            }
+        }
     }
 
     private func deleteImage() {
@@ -789,6 +881,11 @@ struct SourceImageField: View {
             urlPreviewImage = image
         } catch { }
     }
+}
+
+private enum ImageSelectionError: LocalizedError {
+    case unreadable
+    var errorDescription: String? { "선택한 이미지를 읽지 못했습니다." }
 }
 
 struct RemoteImage: View {
@@ -1055,18 +1152,32 @@ struct ScreenshotsEditor: View {
     }
     private func screenshotSection(_ title: String, items: Binding<[Screenshot]>) -> some View {
         Section(title) {
-            ForEach(items.wrappedValue.indices, id: \.self) { index in
+            ForEach(items.wrappedValue, id: \.editorID) { item in
+                let screenshot = screenshotBinding(item.editorID, in: items)
                 VStack(alignment: .leading) {
-                    TextField("이미지 URL", text: items[index].imageURL).urlField()
+                    SourceImageField(title: "스크린샷", url: screenshot.imageURL, isHeader: true,
+                                     confirmDeletion: true, uploadPurpose: .screenshot,
+                                     onImageUploaded: { image in
+                        guard let index = items.wrappedValue.firstIndex(where: { $0.editorID == item.editorID }) else { return }
+                        items.wrappedValue[index].width = String(image.width)
+                        items.wrappedValue[index].height = String(image.height)
+                    }, deletionTitle: "스크린샷 이미지를 삭제하시겠습니까?")
                     HStack {
-                        TextField("너비", text: items[index].width).keyboardType(.numberPad)
-                        TextField("높이", text: items[index].height).keyboardType(.numberPad)
+                        TextField("너비", text: screenshot.width).keyboardType(.numberPad)
+                        TextField("높이", text: screenshot.height).keyboardType(.numberPad)
                     }
                 }
             }
             .onDelete { items.wrappedValue.remove(atOffsets: $0) }
             Button { items.wrappedValue.append(Screenshot()) } label: { Label("추가", systemImage: "plus") }
         }
+    }
+
+    private func screenshotBinding(_ id: UUID, in items: Binding<[Screenshot]>) -> Binding<Screenshot> {
+        Binding(get: { items.wrappedValue.first { $0.editorID == id } ?? Screenshot() }, set: { value in
+            guard let index = items.wrappedValue.firstIndex(where: { $0.editorID == id }) else { return }
+            items.wrappedValue[index] = value
+        })
     }
 }
 
