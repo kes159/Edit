@@ -411,13 +411,129 @@ NSMicrophoneUsageDescription=음성 메시지를 녹음합니다.
 
 **방법 A — JSON 파일을 저장한 뒤 GitHub 웹사이트에서 업로드**
 
-1. Source Editor의 **JSON → JSON 저장** 또는 **Project → JSON 내보내기**로 JSON을 저장합니다.
-2. GitHub 웹사이트에 로그인하고 본인이 쓰기 권한을 가진 공개 저장소를 엽니다.
-3. 파일을 넣을 브랜치와 폴더로 이동해 **Add file → Upload files**를 선택합니다.
-4. 저장한 JSON 파일을 선택하고 변경 내용을 확인한 뒤 커밋합니다.
-5. 업로드한 파일의 **Raw** 주소를 복사해 SideStore에 등록합니다. 자세한 주소 형식은 다음 절을 참고하세요.
+아래는 **GitHub에 로그인된 상태**에서 진행하는 방법입니다. 이미 사용할 공개 저장소가 있다면 저장소 생성 단계는 건너뛰세요.
 
-이 방법은 별도의 Fine-grained personal access token 발급 없이 GitHub 웹 로그인으로 업로드합니다. 파일을 수정한 뒤에는 새 JSON을 다시 저장하고 같은 위치에 업로드하세요.
+#### 공개 저장소 만들기
+
+1. **[GitHub 새 저장소 만들기](https://github.com/new)**를 엽니다.
+2. **Owner**에서 본인의 GitHub 계정이 선택됐는지 확인합니다. 이곳에 표시되는 아이디가 나중에 파일 주소에 들어갑니다.
+3. **Repository name**에 저장소 이름을 입력합니다. 처음이라면 `my-sidestore-source`처럼 영문과 하이픈으로 된 이름을 사용할 수 있습니다.
+4. **Choose visibility** 또는 공개 범위 선택에서 **Public**을 선택합니다.
+5. **Add a README file / Add README** 옵션을 켭니다. README를 함께 만들면 저장소의 파일 목록에서 다음 단계를 시작하기 편합니다.
+6. **Create repository**를 누릅니다.
+7. 저장소가 열리면 상단 **Code** 탭과 파일 목록을 확인합니다.
+
+저장소는 파일을 보관할 공간입니다. 예를 들어 계정 아이디가 `your-name`, 저장소 이름이 `my-sidestore-source`라면 저장소 주소는 다음과 같습니다.
+
+```text
+https://github.com/your-name/my-sidestore-source
+```
+
+이 문서의 `your-name`은 예시입니다. 실제 작업에서는 **Owner에 표시된 본인의 아이디**를 사용하세요.
+
+#### Source Editor에서 JSON 저장하고 GitHub에 올리기
+
+1. Source Editor에서 소스·앱·뉴스 내용을 작성합니다.
+2. **JSON → JSON 저장** 또는 **Project → JSON 내보내기**를 누릅니다.
+3. 파일 이름을 `Source.json`으로 지정하고 파일 앱에서 찾기 쉬운 위치에 저장합니다. iPhone/iPad라면 **나의 iPhone/iPad** 또는 **iCloud Drive** 안의 폴더를 선택할 수 있습니다.
+4. Safari에서 방금 만든 공개 저장소를 엽니다.
+5. **Code** 탭의 파일 목록 위에 있는 브랜치 선택에서 `main`을 선택합니다. 저장소의 브랜치 이름이 다르다면 실제 이름을 확인하세요.
+6. **Add file → Upload files**를 누릅니다.
+7. **choose your files**를 눌러 저장한 `Source.json`을 선택합니다. 컴퓨터에서는 파일을 업로드 영역으로 끌어 놓을 수도 있습니다.
+8. 업로드 목록에 `Source.json`이 표시되는지 확인합니다.
+9. **Commit changes**를 누릅니다. 확인 창이 한 번 더 나오면 현재 브랜치에 반영하는 옵션을 확인하고 완료합니다. Commit은 올린 파일을 저장소에 반영하는 단계입니다.
+10. 파일 목록으로 돌아와 `Source.json`이 보이면 업로드 완료입니다.
+
+휴대폰에서 **Add file**을 찾기 어렵다면 파일 목록의 **+** 또는 **…** 메뉴를 확인하세요. Safari의 페이지 메뉴에서 **데스크탑 웹사이트 요청**을 선택하면 데스크탑 화면으로 볼 수도 있습니다.
+
+파일을 저장소 맨 위에 올리면 다음 주소 예시를 그대로 응용할 수 있습니다. 폴더 안에 올렸다면 그 폴더 이름도 파일 경로에 포함해야 합니다. 파일 이름의 대소문자까지 실제 이름과 같아야 합니다.
+
+#### 공개 JSON의 Raw 주소 찾기
+
+Raw는 GitHub의 메뉴·버튼 없이 **JSON 파일 내용 자체를 제공하는 주소**입니다. SideStore의 소스 추가 화면에는 이 주소를 넣습니다.
+
+1. GitHub 저장소의 **Code** 탭에서 사용할 브랜치가 `main`인지 확인합니다.
+2. 파일 목록에서 **Source.json**을 누릅니다. 폴더 안에 올렸다면 먼저 해당 폴더를 엽니다.
+3. JSON 내용이 보이는 파일 화면에서 **Raw** 버튼을 찾습니다. 화면에 따라 파일 도구 모음이나 **…** 메뉴 안에 있을 수 있습니다.
+4. **Raw**를 눌러 원문을 엽니다.
+5. Safari 주소창을 눌러 현재 주소를 전체 선택하고 **복사**합니다.
+
+Raw를 눌렀을 때 파일이 바로 다운로드된다면, **Raw 링크를 길게 눌러 링크 복사**를 선택할 수도 있습니다. 컴퓨터에서는 Raw 링크를 오른쪽 클릭하고 링크 주소를 복사합니다. **Copy raw file**은 파일 내용 복사일 수 있으므로 주소가 필요한 경우에는 링크 주소를 복사하세요.
+
+아래 두 주소를 비교하면 본인 주소를 확인하기 쉽습니다.
+
+**GitHub에서 파일을 보는 화면 주소**
+
+```text
+https://github.com/your-name/my-sidestore-source/blob/main/Source.json
+```
+
+**SideStore에 등록할 Raw 주소**
+
+```text
+https://raw.githubusercontent.com/your-name/my-sidestore-source/main/Source.json
+```
+
+Raw 버튼에서 복사한 주소에 `/refs/heads/main/`이 포함되어 있어도 브랜치의 원문 주소로 사용할 수 있습니다.
+
+```text
+https://raw.githubusercontent.com/your-name/my-sidestore-source/refs/heads/main/Source.json
+```
+
+Raw 버튼을 찾기 어려우면 다음 네 항목을 확인해 직접 주소를 만들 수 있습니다.
+
+| 확인할 값 | 어디에서 확인하나요? | 예시 |
+| --- | --- | --- |
+| 계정·소유자 아이디 | 저장소 상단의 `소유자 / 저장소` 표시 | `your-name` |
+| 저장소 이름 | 같은 표시의 저장소 부분 | `my-sidestore-source` |
+| 브랜치 이름 | Code 탭의 브랜치 선택 메뉴 | `main` |
+| JSON 파일 경로 | 파일 목록에서 확인한 폴더와 파일 이름 | `Source.json` 또는 `sources/Source.json` |
+
+주소 형식은 다음과 같습니다. `<…>` 부분을 실제 값으로 바꾸고 꺾쇠도 지웁니다.
+
+```text
+https://raw.githubusercontent.com/<소유자>/<저장소>/<브랜치>/<JSON 파일 경로>
+```
+
+예를 들어 `sources` 폴더에 올렸다면 마지막 부분은 `/main/sources/Source.json`입니다. 위 예시 주소를 그대로 복사하지 말고, 본인 저장소의 실제 값으로 바꿔 사용하세요.
+
+#### Raw 주소 확인하고 SideStore에 넣기
+
+1. 복사한 Raw 주소를 Safari의 새 탭에 붙여 넣어 확인합니다.
+2. 공개 JSON은 GitHub 로그인 없이 열려야 합니다. 개인정보 보호 브라우징 탭에서도 확인할 수 있습니다.
+3. GitHub 파일 목록이나 로그인 화면이 아닌 JSON 내용이 열리는지 확인합니다. 브라우저가 파일을 다운로드하는 경우 내려받은 파일이 예상한 JSON인지 확인하세요.
+4. `404: Not Found`가 나오면 공개 범위, 계정·저장소·브랜치 이름, 폴더 경로, 파일 이름의 대소문자를 확인합니다.
+5. SideStore를 열고 **Sources / 소스** 탭의 소스 추가 버튼을 누릅니다. 버튼 위치와 이름은 SideStore 버전에 따라 다를 수 있습니다.
+6. 소스 URL 입력란에 **Raw 주소**를 붙여 넣고 추가합니다.
+7. 소스 이름·앱 목록이 표시되는지 확인합니다. 앱 다운로드 주소와 이미지 URL도 실제로 열려야 정상 배포할 수 있습니다.
+
+다음 표처럼 입력 위치를 구분하면 됩니다.
+
+| 넣을 곳 | 넣을 값 |
+| --- | --- |
+| SideStore의 소스 URL | 공개 JSON의 Raw 주소 전체 |
+| Source Editor의 GitHub 업로드 화면 → 저장소 | `소유자/저장소` 또는 저장소 루트 URL |
+| 같은 화면 → 브랜치 | `main` 등 실제 브랜치 이름 |
+| 같은 화면 → JSON 파일 경로 | `Source.json` 등 저장소 안의 상대 경로 |
+
+Raw 주소는 **이미 올려 둔 파일을 읽는 주소**입니다. Source Editor의 GitHub 업로드 화면은 저장소·브랜치·파일 경로를 나눠 입력하고 토큰으로 파일을 쓰는 기능입니다.
+
+#### 이후 소스 내용을 업데이트할 때
+
+1. Source Editor에서 내용을 수정하고 JSON을 다시 저장합니다.
+2. 같은 저장소·브랜치·파일 경로에 새 JSON을 업로드하고 커밋합니다.
+3. SideStore에서 소스를 새로고침합니다.
+
+같은 브랜치와 파일 경로를 유지하면 기존 Raw 주소를 계속 사용할 수 있습니다. 브랜치 이름 대신 긴 커밋 해시가 들어 있는 주소는 특정 시점의 파일을 가리키므로, 계속 갱신할 소스에는 `main` 같은 브랜치 주소를 사용하세요. 공개 주소도 변경 반영에 캐시 시간이 걸릴 수 있습니다.
+
+도움이 되는 링크:
+
+- [GitHub 새 저장소 만들기](https://github.com/new)
+- [GitHub 공식 도움말 — 저장소 만들기](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)
+- [GitHub 공식 도움말 — 파일 업로드](https://docs.github.com/en/repositories/working-with-files/managing-files/adding-a-file-to-a-repository)
+- [GitHub 공식 도움말 — 파일 내용과 Raw 보기](https://docs.github.com/en/repositories/working-with-files/using-files/viewing-and-understanding-files)
+
+이 방법은 별도의 Fine-grained personal access token 발급 없이 GitHub 웹 로그인으로 업로드합니다.
 
 **방법 B — Source Editor에서 직접 업로드**
 
@@ -490,6 +606,8 @@ NSMicrophoneUsageDescription=음성 메시지를 녹음합니다.
 ### 공개 저장소의 배포 주소
 
 공개 GitHub 저장소라면 raw 파일 주소를 사용할 수 있습니다. 이 주소를 읽는 사용자는 GitHub 로그인이나 토큰 발급이 필요하지 않습니다.
+
+처음 사용하는 경우 11번의 [공개 JSON의 Raw 주소 찾기](#공개-json의-raw-주소-찾기)와 [SideStore에 넣는 방법](#raw-주소-확인하고-sidestore에-넣기)을 순서대로 따라 하세요.
 
 ```text
 https://raw.githubusercontent.com/your-name/your-source/main/Source.json
