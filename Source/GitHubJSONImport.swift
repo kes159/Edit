@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Security
 
 enum JSONImportDestination: String, Identifiable {
     case file, publicRepository, privateRepository
@@ -15,6 +16,23 @@ struct ImportedSourceDocument {
 struct GitHubJSONImportTarget {
     let rawURL: URL
     let apiURL: URL
+    let repositoryIdentifier: String
+
+    static func repositoryIdentifier(from address: String) -> String? {
+        guard let input = URLComponents(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
+              input.scheme?.lowercased() == "https", input.user == nil, input.password == nil,
+              input.port == nil || input.port == 443,
+              let host = input.host?.lowercased(),
+              ["github.com", "www.github.com", "raw.githubusercontent.com", "api.github.com"].contains(host) else { return nil }
+        let parts = input.percentEncodedPath.split(separator: "/").map { String($0).removingPercentEncoding ?? "" }
+        let offset = host == "api.github.com" ? 1 : 0
+        guard parts.count >= offset + 2, offset == 0 || parts.first == "repos" else { return nil }
+        let owner = parts[offset]
+        let repository = parts[offset + 1]
+        guard owner.range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil,
+              repository.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil else { return nil }
+        return "\(owner)/\(repository)".lowercased()
+    }
 
     init(address: String, branchOverride: String = "") throws {
         guard let input = URLComponents(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -78,6 +96,7 @@ struct GitHubJSONImportTarget {
         raw.percentEncodedPath = "/\(encoded(owner))/\(encoded(repository))/\(encoded(branch))/\(filePath)"
         guard let apiURL = api.url, let rawURL = raw.url else { throw GitHubImportError.invalidAddress }
         self.apiURL = apiURL; self.rawURL = rawURL
+        self.repositoryIdentifier = "\(owner)/\(repository)".lowercased()
     }
 }
 
@@ -153,7 +172,7 @@ private final class GitHubImportRedirectPolicy: NSObject, URLSessionTaskDelegate
 }
 
 private enum GitHubImportError: LocalizedError {
-    case invalidAddress, branchMismatch, invalidToken, invalidResponse, tooLarge, invalidJSON, http(Int)
+    case invalidAddress, branchMismatch, invalidToken, invalidResponse, tooLarge, invalidJSON, keychain, http(Int)
     var errorDescription: String? {
         switch self {
         case .invalidAddress: "GitHub의 JSON 파일 주소 또는 Raw 주소를 입력하세요. 파일 경로는 .json으로 끝나야 합니다."
@@ -162,6 +181,7 @@ private enum GitHubImportError: LocalizedError {
         case .invalidResponse: "GitHub 응답을 확인하지 못했습니다."
         case .tooLarge: "JSON 파일은 최대 32MB까지 불러올 수 있습니다."
         case .invalidJSON: "올바른 소스 JSON이 아닙니다. name과 apps 항목이 있는 JSON 파일인지 확인하세요."
+        case .keychain: "불러오기용 토큰을 기기 키체인에 저장하지 못했습니다."
         case .http(401): "토큰이 올바르지 않거나 만료되었습니다."
         case .http(403): "저장소 읽기 권한, 조직 승인 또는 GitHub 요청 제한을 확인하세요."
         case .http(404): "JSON 파일을 찾지 못했습니다. 주소·브랜치·파일 경로와 저장소 접근 권한을 확인하세요."
@@ -178,6 +198,7 @@ struct GitHubJSONImportSheet: View {
     @State private var address = ""
     @State private var branch = ""
     @State private var token = ""
+    @State private var tokenRepository: String?
     @State private var loading = false
     @State private var progress: Double?
     @State private var errorMessage: String?
@@ -208,7 +229,7 @@ struct GitHubJSONImportSheet: View {
                             Button("토큰 만드는 방법") { showingTokenGuide = true }
                                 .font(.caption).foregroundStyle(.blue).buttonStyle(.plain).disabled(loading)
                         }
-                        Text("대상 저장소의 Contents 읽기 권한이 필요합니다. 입력한 토큰은 저장하지 않습니다.")
+                        Text("불러오기에 성공한 토큰은 저장소별로 이 기기의 키체인에 저장합니다. 같은 저장소 주소를 입력하면 다시 불러옵니다.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -240,7 +261,17 @@ struct GitHubJSONImportSheet: View {
             }
         }
         .interactiveDismissDisabled(loading)
+        .task { restoreToken() }
+        .onChange(of: address) { _, _ in restoreToken() }
         .onDisappear { task?.cancel() }
+    }
+
+    private func restoreToken() {
+        guard isPrivate else { return }
+        let repository = GitHubJSONImportTarget.repositoryIdentifier(from: address)
+        guard repository != tokenRepository else { return }
+        tokenRepository = repository
+        token = repository.flatMap { GitHubImportToken.load(repository: $0) } ?? ""
     }
 
     private func beginImport() {
@@ -255,12 +286,51 @@ struct GitHubJSONImportSheet: View {
                     DispatchQueue.main.async { if loading { progress = fraction } }
                 }
                 try Task.checkCancellation()
+                if let credential {
+                    try GitHubImportToken.save(credential, repository: target.repositoryIdentifier)
+                }
                 loading = false
                 onImport(document)
             } catch {
                 if !Task.isCancelled { loading = false; errorMessage = error.localizedDescription }
             }
         }
+    }
+}
+
+private enum GitHubImportToken {
+    // A read-only import token must not replace a write-capable upload token.
+    private static let service = "app.sourceeditor.github-import"
+
+    private static func query(repository: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: repository]
+    }
+
+    static func load(repository: String) -> String? {
+        var lookup = query(repository: repository)
+        lookup[kSecReturnData as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(lookup as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func save(_ token: String, repository: String) throws {
+        let data = Data(token.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        var item = query(repository: repository)
+        item.merge(attributes) { _, new in new }
+        let status = SecItemAdd(item as CFDictionary, nil)
+        let finalStatus = status == errSecDuplicateItem
+            ? SecItemUpdate(query(repository: repository) as CFDictionary, attributes as CFDictionary)
+            : status
+        guard finalStatus == errSecSuccess else { throw GitHubImportError.keychain }
     }
 }
 
