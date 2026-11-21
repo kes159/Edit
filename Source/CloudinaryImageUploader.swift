@@ -2,7 +2,14 @@ import Foundation
 import ImageIO
 import UIKit
 
+struct CloudinaryUploadedImage {
+    let url: URL
+    let width: Int
+    let height: Int
+}
+
 enum CloudinaryImageUploader {
+    enum Purpose: Equatable { case poster, artwork, screenshot }
     // Public identifiers for the unsigned upload preset; no API secret is used.
     private static let cloudName = "twcc97rp"
     private static let uploadPreset = "source_editor_public"
@@ -10,27 +17,37 @@ enum CloudinaryImageUploader {
     private static let maximumUploadBytes = 10_000_000
 
     static func upload(_ imageData: Data) async throws -> URL {
+        (try await uploadImage(imageData, purpose: .poster)).url
+    }
+
+    static func uploadImage(_ imageData: Data, purpose: Purpose) async throws -> CloudinaryUploadedImage {
         guard !imageData.isEmpty, imageData.count <= maximumInputBytes else {
             throw UploadError.imageTooLarge
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 2048,
+            kCGImageSourceThumbnailMaxPixelSize: purpose == .screenshot ? 4096 : 2048,
             kCGImageSourceShouldCache: false
         ]
         guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
-              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-              let jpeg = UIImage(cgImage: thumbnail).jpegData(compressionQuality: 0.85) else {
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw UploadError.invalidImage
         }
-        guard jpeg.count <= maximumUploadBytes else { throw UploadError.imageTooLarge }
+        let image = UIImage(cgImage: thumbnail)
+        let isJPEG = purpose == .poster
+        guard let encoded = isJPEG ? image.jpegData(compressionQuality: 0.85) : image.pngData() else {
+            throw UploadError.invalidImage
+        }
+        guard encoded.count <= maximumUploadBytes else { throw UploadError.imageTooLarge }
 
         let boundary = UUID().uuidString
         var body = Data()
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"upload_preset\"\r\n\r\n\(uploadPreset)\r\n".utf8))
-        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"poster.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
-        body.append(jpeg)
+        let filename = isJPEG ? "image.jpg" : "image.png"
+        let contentType = isJPEG ? "image/jpeg" : "image/png"
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(contentType)\r\n\r\n".utf8))
+        body.append(encoded)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
 
         var request = URLRequest(url: URL(string: "https://api.cloudinary.com/v1_1/\(cloudName)/image/upload")!)
@@ -51,16 +68,19 @@ enum CloudinaryImageUploader {
               let url = URL(string: result.secureURL),
               url.scheme?.lowercased() == "https",
               url.host?.lowercased() == "res.cloudinary.com",
-              url.path.hasPrefix("/\(cloudName)/") else {
+              url.path.hasPrefix("/\(cloudName)/"),
+              result.width > 0, result.height > 0 else {
             throw UploadError.invalidResponse
         }
-        return url
+        return CloudinaryUploadedImage(url: url, width: result.width, height: result.height)
     }
 }
 
 private struct UploadResponse: Decodable {
     let secureURL: String
-    enum CodingKeys: String, CodingKey { case secureURL = "secure_url" }
+    let width: Int
+    let height: Int
+    enum CodingKeys: String, CodingKey { case secureURL = "secure_url", width, height }
 }
 
 private struct UploadErrorResponse: Decodable {
