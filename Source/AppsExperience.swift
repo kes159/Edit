@@ -683,6 +683,7 @@ struct AppEditor: View {
     @Binding var app: SourceApp
     let deleteAction: () -> Void
     @State private var sheet: AppSheet?
+    @State private var canPresentIconEditor = true
     @State private var showingDeleteAlert = false
     @State private var versionDraft = SourceVersion()
     @State private var versionSearch = ""
@@ -727,7 +728,8 @@ struct AppEditor: View {
                                  importedPreview: app.iconPreviewData,
                                  clearImportedPreview: { app.iconPreviewData = nil },
                                  saveImportedPreview: saveExtractedIcon,
-                                 isSavingImportedPreview: savingExtractedIcon)
+                                 isSavingImportedPreview: savingExtractedIcon,
+                                 canPresentImageEditor: sheet == nil && !scanningPackage && canPresentIconEditor)
                 AppInputField(title: "앱 이름", text: $app.name)
                 AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
                 SourceTextField(title: "틴트 컬러", text: $app.tintColor) {
@@ -791,7 +793,7 @@ struct AppEditor: View {
                     .allowsHitTesting(false)
             }
         }
-        .sheet(item: $sheet) { selected in
+        .sheet(item: $sheet, onDismiss: { canPresentIconEditor = true }) { selected in
             switch selected {
             case .addVersion:
                 AddVersionSheet(version: $versionDraft, fileName: selectedFileName) {
@@ -808,6 +810,9 @@ struct AppEditor: View {
                     onCancel: { sheet = nil }
                 )
             }
+        }
+        .onChange(of: sheet) { _, selected in
+            if selected != nil { canPresentIconEditor = false }
         }
         .onChange(of: app.bundleIdentifier) { oldID, newID in
             if !oldID.isEmpty, let index = store.source.featuredApps.firstIndex(of: oldID) {

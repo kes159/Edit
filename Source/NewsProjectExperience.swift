@@ -268,6 +268,7 @@ private struct NewsPosterField: View {
     @State private var urlDraft = ""
     @State private var uploading = false
     @State private var uploadError: String?
+    @State private var framingRequest: ImageFramingRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -318,7 +319,7 @@ private struct NewsPosterField: View {
                             defer { if access { fileURL.stopAccessingSecurityScopedResource() } }
                             return try Data(contentsOf: fileURL)
                         }.value
-                        await uploadImage(data)
+                        await prepareImage(data)
                     } catch {
                         uploading = false
                         uploadError = "파일 앱에서 이미지를 읽지 못했습니다: \(error.localizedDescription)"
@@ -332,6 +333,7 @@ private struct NewsPosterField: View {
         }
         .onChange(of: selectedPhoto) { _, photo in
             guard let photo else { return }
+            showingPhotos = false
             uploading = true
             Task {
                 do {
@@ -341,7 +343,7 @@ private struct NewsPosterField: View {
                         selectedPhoto = nil
                         return
                     }
-                    await uploadImage(data)
+                    await prepareImage(data)
                 } catch {
                     uploading = false
                     uploadError = "사진 앱에서 이미지를 읽지 못했습니다: \(error.localizedDescription)"
@@ -350,6 +352,14 @@ private struct NewsPosterField: View {
             }
         }
         .sheet(isPresented: $showingURLSheet) { urlEditingSheet }
+        .sheet(item: $framingRequest) { request in
+            ImageFramingEditor(image: request.image, profile: .poster,
+                               onCancel: { framingRequest = nil }, onApply: { data in
+                framingRequest = nil
+                uploading = true
+                Task { await uploadImage(data) }
+            })
+        }
         .alert("이미지를 추가하지 못했습니다", isPresented: Binding(
             get: { uploadError != nil },
             set: { if !$0 { uploadError = nil } }
@@ -384,6 +394,12 @@ private struct NewsPosterField: View {
                 }
             }
         }
+    }
+
+    private func prepareImage(_ data: Data) async {
+        defer { uploading = false }
+        do { framingRequest = try await ImageFramingRequest.prepare(data) }
+        catch { uploadError = error.localizedDescription }
     }
 
     private func uploadImage(_ data: Data) async {

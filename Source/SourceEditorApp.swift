@@ -417,9 +417,9 @@ struct SourceEditor: View {
                     .padding(.bottom, 8)
 
                 SourceImageField(title: "헤더 이미지", url: $store.source.headerURL,
-                                 isHeader: true, confirmDeletion: true)
+                                 isHeader: true, confirmDeletion: true, frameProfile: .header)
                 SourceImageField(title: "아이콘", url: $store.source.iconURL,
-                                 isHeader: false, confirmDeletion: true)
+                                 isHeader: false, confirmDeletion: true, frameProfile: .sourceIcon)
 
                 SourceTextField(title: "틴트 컬러", text: $store.source.tintColor) {
                     ColorPicker("틴트 컬러", selection: Binding(
@@ -669,6 +669,10 @@ struct SourceEditor: View {
 }
 
 struct SourceImageField: View {
+    private struct ImportedImageState: Hashable {
+        let data: Data?
+        let needsURL: Bool
+    }
     let title: String
     @Binding var url: String
     let isHeader: Bool
@@ -680,6 +684,8 @@ struct SourceImageField: View {
     var uploadPurpose: CloudinaryImageUploader.Purpose = .artwork
     var onImageUploaded: ((CloudinaryUploadedImage) -> Void)? = nil
     var deletionTitle: String? = nil
+    var frameProfile: ImageFrameProfile = .appIcon
+    var canPresentImageEditor = true
     @State private var selectedImage: PhotosPickerItem?
     @State private var localPreview: Data?
     @State private var showingImageOptions = false
@@ -691,6 +697,8 @@ struct SourceImageField: View {
     @State private var urlPreviewImage: UIImage?
     @State private var loadingURLPreview = false
     @State private var showingDeleteAlert = false
+    @State private var framingRequest: ImageFramingRequest?
+    @State private var framingClearsImportedPreview = true
 
     private var uploading: Bool { uploadID != nil }
     private var previewData: Data? { localPreview ?? importedPreview }
@@ -753,6 +761,15 @@ struct SourceImageField: View {
                     .font(.subheadline)
                 }
             }
+            if importedPreview != nil || urlPreviewImage != nil {
+                Button("이미지 위치·크기 조정") {
+                    if let data = importedPreview ?? urlPreviewImage?.pngData() {
+                        startUpload(clearsImportedPreview: importedPreview == nil) { data }
+                    }
+                }
+                .disabled(uploading)
+                .font(.subheadline)
+            }
             if previewData != nil {
                 if importedPreview != nil, let saveImportedPreview {
                     Button(isSavingImportedPreview ? "사진 앱에 저장 중…" : "추출한 아이콘 저장") {
@@ -762,14 +779,14 @@ struct SourceImageField: View {
                         .font(.subheadline)
                 }
                 if importedPreview != nil, url.isEmpty {
-                    Button("추출한 아이콘 업로드 다시 시도") {
+                    Button("추출한 아이콘 조정·업로드") {
                         if let importedPreview { startUpload(clearsImportedPreview: false) { importedPreview } }
                     }
                     .disabled(uploading)
                     .font(.subheadline)
                 }
             }
-            Text("선택한 이미지는 Cloudinary에 공개 업로드되며 URL이 JSON에 저장됩니다.")
+            Text("사진을 선택한 뒤 위치·크기를 조정하고 적용하면 Cloudinary에 공개 업로드됩니다.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .confirmationDialog("이미지 추가", isPresented: $showingImageOptions, titleVisibility: .visible) {
@@ -795,6 +812,7 @@ struct SourceImageField: View {
         }
         .onChange(of: selectedImage) { _, item in
             guard let item else { return }
+            showingPhotos = false
             startUpload {
                 guard let data = try await item.loadTransferable(type: Data.self) else {
                     throw ImageSelectionError.unreadable
@@ -802,8 +820,19 @@ struct SourceImageField: View {
                 return data
             }
         }
-        .task(id: importedPreview) {
+        .task(id: ImportedImageState(data: importedPreview, needsURL: url.isEmpty)) {
             if let importedPreview, url.isEmpty { startUpload(clearsImportedPreview: false) { importedPreview } }
+        }
+        .sheet(item: Binding(
+            get: { canPresentImageEditor ? framingRequest : nil },
+            set: { framingRequest = $0 }
+        )) { request in
+            ImageFramingEditor(image: request.image, profile: frameProfile,
+                               onCancel: { framingRequest = nil }, onApply: { data in
+                let clearsPreview = framingClearsImportedPreview
+                framingRequest = nil
+                startUpload(clearsImportedPreview: clearsPreview, needsFraming: false) { data }
+            })
         }
         .alert(deletionTitle ?? (isHeader ? "헤더 이미지를 삭제하시겠습니까?" : "아이콘을 삭제하시겠습니까?"),
                isPresented: $showingDeleteAlert) {
@@ -824,7 +853,8 @@ struct SourceImageField: View {
         }
     }
 
-    private func startUpload(clearsImportedPreview: Bool = true, loadData: @escaping () async throws -> Data) {
+    private func startUpload(clearsImportedPreview: Bool = true, needsFraming: Bool = true,
+                             loadData: @escaping () async throws -> Data) {
         uploadTask?.cancel()
         let id = UUID()
         uploadID = id
@@ -841,6 +871,14 @@ struct SourceImageField: View {
                 let data = try await loadData()
                 try Task.checkCancellation()
                 guard uploadID == id else { return }
+                if needsFraming {
+                    let request = try await ImageFramingRequest.prepare(data)
+                    try Task.checkCancellation()
+                    guard uploadID == id else { return }
+                    framingClearsImportedPreview = clearsImportedPreview
+                    framingRequest = request
+                    return
+                }
                 localPreview = data
                 let image = try await CloudinaryImageUploader.uploadImage(data, purpose: uploadPurpose)
                 try Task.checkCancellation()
@@ -1161,7 +1199,7 @@ struct ScreenshotsEditor: View {
                         guard let index = items.wrappedValue.firstIndex(where: { $0.editorID == item.editorID }) else { return }
                         items.wrappedValue[index].width = String(image.width)
                         items.wrappedValue[index].height = String(image.height)
-                    }, deletionTitle: "스크린샷 이미지를 삭제하시겠습니까?")
+                    }, deletionTitle: "스크린샷 이미지를 삭제하시겠습니까?", frameProfile: .screenshot)
                     HStack {
                         TextField("너비", text: screenshot.width).keyboardType(.numberPad)
                         TextField("높이", text: screenshot.height).keyboardType(.numberPad)
