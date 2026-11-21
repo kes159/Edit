@@ -1,7 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import QuartzCore
-import Photos
 
 func validReorderFrame(_ frame: CGRect) -> Bool {
     frame.origin.x.isFinite && frame.origin.y.isFinite
@@ -683,7 +682,6 @@ struct AppEditor: View {
     @Binding var app: SourceApp
     let deleteAction: () -> Void
     @State private var sheet: AppSheet?
-    @State private var canPresentIconEditor = true
     @State private var showingDeleteAlert = false
     @State private var versionDraft = SourceVersion()
     @State private var versionSearch = ""
@@ -692,8 +690,9 @@ struct AppEditor: View {
     @State private var editingVersions = false
     @State private var selectedFileName: String?
     @State private var scanningPackage = false
-    @State private var savingExtractedIcon = false
-    @State private var iconSaveNotice: IconSaveNotice?
+    @State private var iconUploadTask: Task<Void, Never>?
+    @State private var iconUploadID: UUID?
+    @State private var iconUploadError: String?
     @State private var newPrivacyKey = ""
     @State private var newPrivacyValue = ""
     @State private var newEntitlement = ""
@@ -727,9 +726,8 @@ struct AppEditor: View {
                                  confirmDeletion: true,
                                  importedPreview: app.iconPreviewData,
                                  clearImportedPreview: { app.iconPreviewData = nil },
-                                 saveImportedPreview: saveExtractedIcon,
-                                 isSavingImportedPreview: savingExtractedIcon,
-                                 canPresentImageEditor: sheet == nil && !scanningPackage && canPresentIconEditor)
+                                 isUploadingImportedPreview: iconUploadID != nil,
+                                 importedUploadError: iconUploadError)
                 AppInputField(title: "앱 이름", text: $app.name)
                 AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
                 SourceTextField(title: "틴트 컬러", text: $app.tintColor) {
@@ -781,19 +779,7 @@ struct AppEditor: View {
                 }
             }
         }
-        .overlay {
-            if let iconSaveNotice {
-                Label(iconSaveNotice.message, systemImage: iconSaveNotice.symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    .shadow(radius: 12)
-                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
-                    .allowsHitTesting(false)
-            }
-        }
-        .sheet(item: $sheet, onDismiss: { canPresentIconEditor = true }) { selected in
+        .sheet(item: $sheet) { selected in
             switch selected {
             case .addVersion:
                 AddVersionSheet(version: $versionDraft, fileName: selectedFileName) {
@@ -811,8 +797,15 @@ struct AppEditor: View {
                 )
             }
         }
-        .onChange(of: sheet) { _, selected in
-            if selected != nil { canPresentIconEditor = false }
+        .onChange(of: app.iconURL) { _, value in
+            if !value.isEmpty { iconUploadError = nil }
+        }
+        .onDisappear {
+            // Keep the automatic upload running while the version sheet is open.
+            if sheet == nil {
+                iconUploadTask?.cancel()
+                iconUploadID = nil
+            }
         }
         .onChange(of: app.bundleIdentifier) { oldID, newID in
             if !oldID.isEmpty, let index = store.source.featuredApps.firstIndex(of: oldID) {
@@ -1091,44 +1084,39 @@ struct AppEditor: View {
         sheet = .packagePicker
     }
 
-    private func saveExtractedIcon() {
-        guard let data = app.iconPreviewData, let image = UIImage(data: data) else {
-            showIconSaveNotice("저장할 아이콘이 없습니다.", symbol: "exclamationmark.triangle.fill")
-            return
-        }
-        savingExtractedIcon = true
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                DispatchQueue.main.async {
-                    savingExtractedIcon = false
-                    showIconSaveNotice("사진 추가 권한이 필요합니다.", symbol: "exclamationmark.triangle.fill")
-                }
-                return
-            }
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
-            } completionHandler: { success, _ in
-                DispatchQueue.main.async {
-                    savingExtractedIcon = false
-                    showIconSaveNotice(
-                        success ? "사진 앱에 저장되었습니다." : "사진 앱에 저장하지 못했습니다.",
-                        symbol: success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                    )
+    private func uploadExtractedIcon(_ data: Data) {
+        iconUploadTask?.cancel()
+        let id = UUID()
+        let appID = app.editorID
+        iconUploadID = id
+        iconUploadError = nil
+        iconUploadTask = Task { @MainActor in
+            defer {
+                if iconUploadID == id {
+                    iconUploadID = nil
+                    iconUploadTask = nil
                 }
             }
-        }
-    }
-
-    private func showIconSaveNotice(_ message: String, symbol: String) {
-        let notice = IconSaveNotice(message: message, symbol: symbol)
-        withAnimation(.easeInOut(duration: 0.2)) { iconSaveNotice = notice }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            guard iconSaveNotice?.id == notice.id else { return }
-            withAnimation(.easeInOut(duration: 0.2)) { iconSaveNotice = nil }
+            do {
+                let image = try await CloudinaryImageUploader.uploadImage(data, purpose: .artwork)
+                try Task.checkCancellation()
+                guard iconUploadID == id,
+                      let index = store.source.apps.firstIndex(where: { $0.editorID == appID }),
+                      store.source.apps[index].iconPreviewData == data,
+                      store.source.apps[index].iconURL.isEmpty else { return }
+                store.source.apps[index].iconURL = image.url.absoluteString
+            } catch {
+                if !Task.isCancelled, iconUploadID == id {
+                    iconUploadError = "아이콘 업로드에 실패했습니다: \(error.localizedDescription)"
+                }
+            }
         }
     }
 
     private func scanSelectedFile(_ url: URL) {
+        iconUploadTask?.cancel()
+        iconUploadID = nil
+        iconUploadError = nil
         sheet = nil
         scanningPackage = true
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1142,6 +1130,7 @@ struct AppEditor: View {
                     if let icon = package.iconData {
                         app.iconPreviewData = icon
                         app.iconURL = ""
+                        uploadExtractedIcon(icon)
                     }
                     versionDraft = SourceVersion()
                     versionDraft.version = package.version
@@ -1156,12 +1145,6 @@ struct AppEditor: View {
             }
         }
     }
-}
-
-private struct IconSaveNotice: Identifiable {
-    let id = UUID()
-    let message: String
-    let symbol: String
 }
 
 private func appVersionDate(_ value: String) -> String {
