@@ -669,23 +669,18 @@ struct SourceEditor: View {
 }
 
 struct SourceImageField: View {
-    private struct ImportedImageState: Hashable {
-        let data: Data?
-        let needsURL: Bool
-    }
     let title: String
     @Binding var url: String
     let isHeader: Bool
     var confirmDeletion = false
     var importedPreview: Data? = nil
     var clearImportedPreview: (() -> Void)? = nil
-    var saveImportedPreview: (() -> Void)? = nil
-    var isSavingImportedPreview = false
+    var isUploadingImportedPreview = false
+    var importedUploadError: String? = nil
     var uploadPurpose: CloudinaryImageUploader.Purpose = .artwork
     var onImageUploaded: ((CloudinaryUploadedImage) -> Void)? = nil
     var deletionTitle: String? = nil
     var frameProfile: ImageFrameProfile = .appIcon
-    var canPresentImageEditor = true
     @State private var selectedImage: PhotosPickerItem?
     @State private var localPreview: Data?
     @State private var showingImageOptions = false
@@ -700,7 +695,7 @@ struct SourceImageField: View {
     @State private var framingRequest: ImageFramingRequest?
     @State private var framingClearsImportedPreview = true
 
-    private var uploading: Bool { uploadID != nil }
+    private var uploading: Bool { uploadID != nil || isUploadingImportedPreview }
     private var previewData: Data? { localPreview ?? importedPreview }
     private var previewURL: URL? {
         let text = url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -761,12 +756,8 @@ struct SourceImageField: View {
                     .font(.subheadline)
                 }
             }
-            if importedPreview != nil, let saveImportedPreview {
-                Button(isSavingImportedPreview ? "사진 앱에 저장 중…" : "추출한 아이콘 저장") {
-                    saveImportedPreview()
-                }
-                .disabled(isSavingImportedPreview)
-                .font(.subheadline)
+            if let importedUploadError {
+                Text(importedUploadError).font(.caption).foregroundStyle(.red)
             }
             Text("사진을 선택한 뒤 위치·크기를 조정하고 적용하면 Cloudinary에 공개 업로드됩니다.")
                 .font(.caption2).foregroundStyle(.secondary)
@@ -774,14 +765,11 @@ struct SourceImageField: View {
         .confirmationDialog("이미지 추가", isPresented: $showingImageOptions, titleVisibility: .visible) {
             Button("사진 앱에서 선택") { showingPhotos = true }
             Button("파일 앱에서 선택") { showingFiles = true }
-            if let urlPreviewImage {
+            if urlPreviewImage != nil || importedPreview != nil {
                 Button("현재 이미지 사용") {
-                    if let data = urlPreviewImage.pngData() { startUpload(clearsImportedPreview: false) { data } }
-                }
-            }
-            if let importedPreview {
-                Button("추출한 아이콘 사용") {
-                    startUpload(clearsImportedPreview: false) { importedPreview }
+                    if let data = urlPreviewImage?.pngData() ?? importedPreview {
+                        startUpload(clearsImportedPreview: false) { data }
+                    }
                 }
             }
         } message: {
@@ -812,13 +800,7 @@ struct SourceImageField: View {
                 return data
             }
         }
-        .task(id: ImportedImageState(data: importedPreview, needsURL: url.isEmpty)) {
-            if let importedPreview, url.isEmpty { startUpload(clearsImportedPreview: false) { importedPreview } }
-        }
-        .sheet(item: Binding(
-            get: { canPresentImageEditor ? framingRequest : nil },
-            set: { framingRequest = $0 }
-        )) { request in
+        .sheet(item: $framingRequest) { request in
             ImageFramingEditor(image: request.image, profile: frameProfile,
                                onCancel: { framingRequest = nil }, onApply: { data in
                 let clearsPreview = framingClearsImportedPreview
