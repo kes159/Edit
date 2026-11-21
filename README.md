@@ -31,9 +31,34 @@ SideStore용 소스 JSON을 만들고 관리하는 SwiftUI iOS 앱입니다. JSO
 2. **앱** 탭에서 앱과 최소 하나의 버전을 추가합니다. 다운로드 URL은 게시된 IPA 또는 ADP 파일을 가리켜야 합니다. 크기는 바이트 단위입니다.
 3. 필요하면 **뉴스**를 추가합니다.
 4. **JSON** 탭에서 검증 메시지를 확인하고 **JSON 저장**을 누릅니다. 기존 JSON은 같은 탭의 **가져오기**에서 열 수 있고, **GitHub에 업로드하기**에서 바로 업로드 화면을 열 수 있습니다.
-5. 저장소에 직접 반영하려면 **Project → GitHub에 업로드하기**에서 저장소(`소유자/저장소` 또는 GitHub URL), 브랜치, JSON 파일 경로를 입력합니다. 저장소는 직접 입력해야 하며, 브랜치와 파일 경로의 초기값은 `main`, `Source.json`입니다. 화면 아래 **사용 방법**에 따라 GitHub의 Fine-grained personal access token을 만들고, 업로드할 저장소를 선택한 뒤 **Contents → Read and write** 권한을 부여합니다. 토큰을 입력하고 **JSON 업로드하기**를 누르면 기존 파일은 덮어쓰고 없는 파일은 새로 만듭니다. 토큰은 저장소별로 기기 키체인에서 다시 불러옵니다.
+5. 저장소에 직접 반영하려면 **Project → GitHub에 업로드하기**에서 저장소(`소유자/저장소` 또는 GitHub URL), 브랜치, JSON 파일 경로를 입력합니다. 저장소는 직접 입력해야 하며, 브랜치와 파일 경로의 초기값은 `main`, `Source.json`입니다. 공개·비공개 저장소별 사용법은 아래를 참고하세요. 앱에서 직접 업로드할 때는 두 유형 모두 쓰기 권한 토큰이 필요하며, 토큰은 저장소별로 기기 키체인에 저장됩니다.
 
 이 앱은 JSON 파일을 생성하고 선택한 공개·비공개 GitHub 저장소에 업로드할 수 있습니다. 실제 IPA/ADP 파일은 사용자가 별도로 호스팅해야 SideStore 소스로 배포할 수 있습니다. GitHub 토큰은 각 사용자가 자신의 기기에서 설정합니다. 뉴스 포스터는 별도 가입이나 키 입력 없이 Cloudinary에 업로드합니다. 같은 앱 식별자로 기존 설치본을 업데이트하면 기기에 저장된 이전 GitHub 업로드 설정은 유지될 수 있습니다.
+
+### 공개 저장소를 사용하는 경우
+
+토큰을 발급하지 않고 사용하려면 다음 순서로 진행합니다.
+
+1. 앱에서 **JSON 저장**으로 파일을 내보냅니다.
+2. GitHub 웹사이트에 로그인하고 쓰기 권한이 있는 공개 저장소를 엽니다.
+3. 원하는 브랜치·폴더에서 **Add file → Upload files**로 JSON을 올리고 커밋합니다.
+4. 파일의 **Raw** 주소를 SideStore에 등록합니다. 공개 JSON을 읽는 사용자에게는 로그인이나 토큰이 필요하지 않습니다.
+
+앱에서 **GitHub에 업로드하기**로 직접 파일을 생성·수정하려면 공개 저장소도 토큰이 필요합니다. 아래 토큰 발급 절차에서 대상 공개 저장소를 선택하고 **Contents → Read and write**를 부여하세요.
+
+### 비공개 저장소를 사용하는 경우 — Fine-grained personal access token
+
+1. GitHub의 **Settings → Developer settings → Personal access tokens → Fine-grained tokens**에서 토큰을 만듭니다.
+2. **Resource owner**를 확인하고 **Repository access**에서 업로드할 비공개 저장소를 선택합니다.
+3. **Repository permissions → Contents → Read and write**를 설정하고 토큰을 생성합니다.
+4. 앱의 **Project → GitHub에 업로드하기**에서 저장소·브랜치·JSON 경로와 토큰을 입력합니다.
+5. **JSON 업로드하기**를 누르고 완료 후 **GitHub에서 보기**로 확인합니다. 기존 파일은 덮어쓰고 없는 파일은 새로 만듭니다.
+
+비공개 저장소의 파일은 일반 공개 Raw 주소로 배포할 수 없습니다. SideStore에 배포하려면 JSON과 IPA/ADP가 대상 사용자에게 열리는 별도 배포 경로가 필요합니다. 앱의 업로드용 토큰은 SideStore에 자동 전달되지 않으며, JSON이나 공유할 URL에 넣으면 안 됩니다.
+
+비공개 저장소도 GitHub 웹사이트에서 로그인 후 수동 업로드하면 별도 토큰 발급은 필요하지 않습니다. 다만 파일의 접근 제한은 유지됩니다.
+
+자세한 절차와 비교표는 [사용 가이드](USER_GUIDE.md#11-github에-json-업로드하기)를 참고하세요.
 
 ## 빌드와 설치
 
@@ -42,8 +67,8 @@ SideStore용 소스 JSON을 만들고 관리하는 SwiftUI iOS 앱입니다. JSO
 - 앱 식별자가 `app.sourceeditor`로 변경되어 기존 설치본과 별개 앱으로 설치됩니다. 기존 작업은 이전 앱에서 JSON으로 저장한 뒤 새 앱에서 가져오세요. 저장소별 GitHub 토큰도 새 앱에서 다시 입력해야 합니다.
 - 제공된 IPA는 코드 서명 및 프로비저닝이 없는 빌드입니다. SideStore 등에서 기기용으로 서명해 설치하거나 Xcode에서 자신의 개발 팀을 선택해 다시 빌드하세요.
 - 터미널에서는 `./scripts/build-ipa.sh`로 서명되지 않은 IPA를 `build/Source.ipa`에 만들 수 있습니다.
-- GitHub의 **Actions → Build Source Editor IPA → Run workflow**를 수동 실행하면 빌드 결과에 `Source_Editor.ipa` 아티팩트와 **iPhone/iPad Safari download** 링크가 표시됩니다. iPhone/iPad에서는 결과 화면의 링크를 눌러 비공개 저장소의 Release에서 IPA를 직접 받으세요. Actions의 아티팩트 미리보기 화면에서 파일을 저장하면 일부 환경에서 끝부분이 잘린 파일이 만들어질 수 있습니다.
-- 수동 실행으로 만든 Release는 실행 번호마다 별도로 생성되며 비공개 저장소 안에만 표시됩니다. IPA는 서명되지 않았으므로 Feather로 서명한 뒤 설치해야 합니다. 파일의 생성일과 수정일은 다운로드하는 기기와 방식에 따라 다운로드 시각으로 표시될 수 있습니다.
+- GitHub의 **Actions → Build Source Editor IPA → Run workflow**를 수동 실행하면 빌드 결과에 `Source_Editor.ipa` 아티팩트와 **iPhone/iPad Safari download** 링크가 표시됩니다. iPhone/iPad에서는 결과 화면의 링크를 눌러 해당 저장소의 Release에서 IPA를 직접 받으세요. Actions의 아티팩트 미리보기 화면에서 파일을 저장하면 일부 환경에서 끝부분이 잘린 파일이 만들어질 수 있습니다.
+- 수동 실행으로 만든 Release는 실행 번호마다 별도로 생성됩니다. 공개 저장소의 Release는 공개되며, 비공개 저장소의 Release는 접근 권한이 있는 사용자만 볼 수 있습니다. IPA는 서명되지 않았으므로 Feather로 서명한 뒤 설치해야 합니다. 파일의 생성일과 수정일은 다운로드하는 기기와 방식에 따라 다운로드 시각으로 표시될 수 있습니다.
 - **Actions → Delete past runs and releases → Run workflow**를 수동 실행하면 완료된 워크플로 기록과 모든 Release, 각 Release에 연결된 태그를 삭제합니다. 실행 중인 정리 작업과 Release에 연결되지 않은 태그는 남습니다.
 
 ## 범위

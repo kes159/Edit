@@ -34,7 +34,7 @@ struct GitHubUploadSheet: View {
                     SecureField("Fine-grained personal access token", text: $token)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Text("선택한 저장소의 Contents 읽기 및 쓰기 권한이 있는 토큰을 입력하세요. 토큰은 저장소별로 이 기기의 키체인에 저장됩니다.")
+                    Text("공개·비공개 저장소 모두 앱에서 직접 업로드하려면 Contents 읽기 및 쓰기 권한이 있는 토큰이 필요합니다. 토큰은 저장소별로 이 기기의 키체인에 저장됩니다.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -50,13 +50,28 @@ struct GitHubUploadSheet: View {
                     }
                     .disabled(isUploading || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                Section("사용 방법") {
-                    Text("1. 저장소를 소유자/저장소 형식으로 입력하고 브랜치와 JSON 파일 경로를 지정하세요. GitHub 저장소 URL도 붙여넣을 수 있습니다.")
-                    Text("2. GitHub에서 Fine-grained personal access token을 만들고, 업로드할 저장소를 선택한 뒤 Contents 권한을 Read and write로 설정하세요. 비공개 저장소도 선택할 수 있습니다.")
-                    Text("3. 토큰을 입력한 뒤 JSON 업로드하기를 누르세요. 다른 저장소로 바꾸면 해당 저장소에 저장된 토큰을 불러옵니다.")
+                Section("공개 저장소 사용 방법") {
+                    Text("1. 토큰을 발급하지 않고 사용하려면 이 화면을 닫고 JSON 저장으로 파일을 내보내세요.")
+                    Text("2. GitHub 웹사이트에 로그인한 뒤 쓰기 권한이 있는 공개 저장소에서 Add file → Upload files로 JSON을 올리고 커밋하세요.")
+                    Text("3. 파일의 Raw 주소를 SideStore에 등록하세요. 공개 파일을 읽을 때는 토큰이 필요하지 않습니다.")
+                    Text("앱에서 직접 업로드하려면 공개 저장소도 아래와 같은 Fine-grained personal access token 설정이 필요합니다.")
+                }
+                .font(.footnote)
+                Section("비공개 저장소 사용 방법") {
+                    Text("1. GitHub에서 Fine-grained personal access token을 만들고 Resource owner와 업로드할 비공개 저장소를 선택하세요.")
+                    Text("2. Repository permissions → Contents를 Read and write로 설정한 뒤 토큰을 생성하세요.")
+                    Text("3. 이 화면에 저장소·브랜치·JSON 파일 경로와 토큰을 입력하고 JSON 업로드하기를 누르세요.")
+                    Text("비공개 파일은 공개 Raw 주소처럼 배포할 수 없습니다. SideStore가 접근할 수 있는 별도 배포 경로가 필요하며, 이 앱의 토큰은 SideStore에 전달되지 않습니다.")
+                    Text("비공개 저장소도 GitHub 웹사이트에서 로그인 후 수동 업로드할 수 있습니다. 그 경우 별도 토큰 발급은 필요하지 않습니다.")
                     if let settingsURL = URL(string: "https://github.com/settings/personal-access-tokens/new") {
                         Link("GitHub에서 토큰 만들기", destination: settingsURL)
                     }
+                }
+                .font(.footnote)
+                Section("앱에서 직접 업로드 — 공통") {
+                    Text("1. 저장소를 소유자/저장소 형식으로 입력하고 브랜치와 JSON 파일 경로를 지정하세요. GitHub 저장소 URL도 붙여넣을 수 있습니다.")
+                    Text("2. 업로드 대상 저장소의 Contents 읽기 및 쓰기 권한이 있는 토큰을 입력하고 JSON 업로드하기를 누르세요.")
+                    Text("3. 완료 메시지의 GitHub에서 보기로 결과를 확인하세요. 다른 저장소로 바꾸면 해당 저장소에 저장된 토큰을 불러옵니다.")
                 }
                 .font(.footnote)
             }
