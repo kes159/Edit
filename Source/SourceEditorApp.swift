@@ -761,30 +761,12 @@ struct SourceImageField: View {
                     .font(.subheadline)
                 }
             }
-            if importedPreview != nil || urlPreviewImage != nil {
-                Button("이미지 위치·크기 조정") {
-                    if let data = importedPreview ?? urlPreviewImage?.pngData() {
-                        startUpload(clearsImportedPreview: importedPreview == nil) { data }
-                    }
+            if importedPreview != nil, let saveImportedPreview {
+                Button(isSavingImportedPreview ? "사진 앱에 저장 중…" : "추출한 아이콘 저장") {
+                    saveImportedPreview()
                 }
-                .disabled(uploading)
+                .disabled(isSavingImportedPreview)
                 .font(.subheadline)
-            }
-            if previewData != nil {
-                if importedPreview != nil, let saveImportedPreview {
-                    Button(isSavingImportedPreview ? "사진 앱에 저장 중…" : "추출한 아이콘 저장") {
-                        saveImportedPreview()
-                    }
-                        .disabled(isSavingImportedPreview)
-                        .font(.subheadline)
-                }
-                if importedPreview != nil, url.isEmpty {
-                    Button("추출한 아이콘 조정·업로드") {
-                        if let importedPreview { startUpload(clearsImportedPreview: false) { importedPreview } }
-                    }
-                    .disabled(uploading)
-                    .font(.subheadline)
-                }
             }
             Text("사진을 선택한 뒤 위치·크기를 조정하고 적용하면 Cloudinary에 공개 업로드됩니다.")
                 .font(.caption2).foregroundStyle(.secondary)
@@ -792,6 +774,16 @@ struct SourceImageField: View {
         .confirmationDialog("이미지 추가", isPresented: $showingImageOptions, titleVisibility: .visible) {
             Button("사진 앱에서 선택") { showingPhotos = true }
             Button("파일 앱에서 선택") { showingFiles = true }
+            if let urlPreviewImage {
+                Button("현재 이미지 사용") {
+                    if let data = urlPreviewImage.pngData() { startUpload(clearsImportedPreview: false) { data } }
+                }
+            }
+            if let importedPreview {
+                Button("추출한 아이콘 사용") {
+                    startUpload(clearsImportedPreview: false) { importedPreview }
+                }
+            }
         } message: {
             Text("선택한 이미지는 Cloudinary에 공개 업로드됩니다.")
         }
