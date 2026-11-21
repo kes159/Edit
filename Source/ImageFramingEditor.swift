@@ -72,6 +72,7 @@ struct ImageFramingEditor: View {
     @GestureState private var pinch: CGFloat = 1
 
     private var output: CGSize { profile.outputSize(for: image) }
+    private var paddingColor: UIColor { UIColor.white.withAlphaComponent(0.5) }
     private var maximumZoom: CGFloat {
         let fillScale = max(output.width / image.size.width, output.height / image.size.height)
             / profile.fitScale(image: image.size, canvas: output)
@@ -127,7 +128,7 @@ struct ImageFramingEditor: View {
                             height: position.height + drag.height / size.height)
         let rect = drawingRect(canvas: size, scale: scale, offset: offset)
         return ZStack {
-            Color.white
+            Color(uiColor: paddingColor)
             Image(uiImage: image).resizable()
                 .frame(width: rect.width, height: rect.height)
                 .position(x: rect.midX, y: rect.midY)
@@ -159,9 +160,9 @@ struct ImageFramingEditor: View {
     private func render() -> Data? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        format.opaque = true
+        format.opaque = false
         let rendered = UIGraphicsImageRenderer(size: output, format: format).image { context in
-            UIColor.white.setFill()
+            paddingColor.setFill()
             context.fill(CGRect(origin: .zero, size: output))
             context.cgContext.interpolationQuality = .high
             image.draw(in: drawingRect(canvas: output, scale: zoom, offset: position))
