@@ -1133,7 +1133,7 @@ struct JSONScreen: View {
                 }
                 SelectableJSONTextView(text: store.jsonText)
                     .frame(height: UIDevice.current.userInterfaceIdiom == .pad ? 680 : 520)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(.black, in: RoundedRectangle(cornerRadius: 12))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .padding()
@@ -1167,21 +1167,24 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         view.isEditable = false
         view.isSelectable = true
         view.isScrollEnabled = true
-        view.backgroundColor = .clear
-        view.textColor = .label
+        view.backgroundColor = .black
+        view.indicatorStyle = .white
+        view.tintColor = .systemBlue
         view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         view.textContainer.lineFragmentPadding = 0
-        view.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: .monospacedSystemFont(ofSize: 12, weight: .regular)
-        )
-        view.adjustsFontForContentSizeCategory = true
         view.accessibilityLabel = "JSON 미리보기 내용"
-        view.text = text
+        view.attributedText = JSONPreviewSyntax.attributedText(text)
         return view
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        if view.text != text { view.text = text }
+        guard view.text != text else { return }
+        let selection = view.selectedRange
+        let offset = view.contentOffset
+        view.attributedText = JSONPreviewSyntax.attributedText(text)
+        let location = min(selection.location, text.utf16.count)
+        view.selectedRange = NSRange(location: location, length: min(selection.length, text.utf16.count - location))
+        view.setContentOffset(offset, animated: false)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -1198,6 +1201,44 @@ private struct SelectableJSONTextView: UIViewRepresentable {
             }
             return UIMenu(children: suggestedActions + [selectAll, copyAll])
         }
+    }
+}
+
+private enum JSONPreviewSyntax {
+    // AltStudio's code viewer uses Monaco, Menlo, Consolas at 14px.
+    // Menlo is available on iOS; the token colors match its dark theme.
+    private static let font = UIFont(name: "Menlo-Regular", size: 14)
+        ?? UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+    private static let tokens = try! NSRegularExpression(
+        pattern: #""(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b"#
+    )
+
+    static func attributedText(_ text: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 20
+        paragraph.maximumLineHeight = 20
+        let result = NSMutableAttributedString(string: text, attributes: [
+            .font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph
+        ])
+        let source = text as NSString
+        tokens.enumerateMatches(in: text, range: NSRange(location: 0, length: source.length)) { match, _, _ in
+            guard let range = match?.range else { return }
+            let token = source.substring(with: range)
+            let color: UIColor
+            if token.hasPrefix("\"") {
+                var next = NSMaxRange(range)
+                while next < source.length, [9, 10, 13, 32].contains(source.character(at: next)) { next += 1 }
+                // A quoted token followed by a colon is a field name, not a string value.
+                color = next < source.length && source.character(at: next) == 58
+                    ? .white : UIColor(red: 0x13 / 255.0, green: 0xCE / 255.0, blue: 0x66 / 255.0, alpha: 1)
+            } else if token == "null" {
+                color = UIColor(red: 0xD5 / 255.0, green: 0x5F / 255.0, blue: 0xDE / 255.0, alpha: 1)
+            } else {
+                color = UIColor(red: 0x1D / 255.0, green: 0x8C / 255.0, blue: 0xE0 / 255.0, alpha: 1)
+            }
+            result.addAttribute(.foregroundColor, value: color, range: range)
+        }
+        return result
     }
 }
 
