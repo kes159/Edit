@@ -17,7 +17,9 @@ struct RootView: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @State private var importing = false
+    @State private var showingImportOptions = false
+    @State private var importDestination: JSONImportDestination?
+    @State private var pendingRemoteImport: ImportedSourceDocument?
     @State private var importProgress: Double?
     @State private var exporting = false
     @State private var exportDocument: JSONFile?
@@ -32,7 +34,7 @@ struct RootView: View {
             if showWelcome {
                 WelcomeScreen(
                     hasDraft: store.hasSavedDraft,
-                    importAction: { importing = true },
+                    importAction: { showingImportOptions = true },
                     newProjectAction: {
                         if store.hasSavedDraft {
                             confirmingNewProject = true
@@ -49,14 +51,25 @@ struct RootView: View {
                 compactLayout
             }
         }
-        .sheet(isPresented: $importing) {
-            JSONImportPicker(
-                onPick: { url in
-                    importing = false
+        .confirmationDialog("JSON 불러오기", isPresented: $showingImportOptions, titleVisibility: .visible) {
+            Button("파일 앱에서 불러오기") { importDestination = .file }
+            Button("공개 저장소에서 불러오기") { importDestination = .publicRepository }
+            Button("비공개 저장소에서 불러오기") { importDestination = .privateRepository }
+            Button("취소", role: .cancel) {}
+        }
+        .sheet(item: $importDestination, onDismiss: applyRemoteImport) { destination in
+            switch destination {
+            case .file:
+                JSONImportPicker(onPick: { url in
+                    importDestination = nil
                     beginImport(url)
-                },
-                onCancel: { importing = false }
-            )
+                }, onCancel: { importDestination = nil })
+            case .publicRepository, .privateRepository:
+                GitHubJSONImportSheet(isPrivate: destination == .privateRepository) { document in
+                    pendingRemoteImport = document
+                    importDestination = nil
+                }
+            }
         }
         .overlay {
             if let importProgress {
@@ -64,7 +77,7 @@ struct RootView: View {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
                         Text("JSON 불러오는 중…").font(.headline)
-                        JSONTransferProgressIndicator(progress: importProgress, accessibilityTitle: "JSON 가져오기 진행률")
+                        JSONTransferProgressIndicator(progress: importProgress, accessibilityTitle: "JSON 불러오기 진행률")
                     }
                     .padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
@@ -152,7 +165,7 @@ struct RootView: View {
     }
 
     private var jsonScreen: some View {
-        JSONScreen(importAction: { importing = true }, exportAction: beginExport)
+        JSONScreen(importAction: { showingImportOptions = true }, exportAction: beginExport)
     }
 
     private var projectScreen: some View {
@@ -161,7 +174,7 @@ struct RootView: View {
                 if store.hasSavedDraft { confirmingNewProject = true }
                 else { store.newProject(); selectedTab = .source; selectedSection = .source }
             },
-            importAction: { importing = true },
+            importAction: { showingImportOptions = true },
             exportAction: beginExport,
             viewCodeAction: { selectedTab = .json; selectedSection = .json }
         )
@@ -170,6 +183,13 @@ struct RootView: View {
     private func beginExport() {
         exportDocument = JSONFile(data: store.jsonData())
         exporting = true
+    }
+
+    private func applyRemoteImport() {
+        guard let document = pendingRemoteImport else { return }
+        pendingRemoteImport = nil
+        store.applyImportedJSON(document.source, data: document.data)
+        showWelcome = false
     }
 
     private func beginImport(_ url: URL) {
@@ -307,14 +327,14 @@ struct WelcomeScreen: View {
 
                         VStack(alignment: .leading, spacing: 22) {
                             feature("rectangle.split.2x1", "편리한 편집", "소스, 앱, 버전과 뉴스를 한곳에서 관리합니다.")
-                            feature("arrow.down.doc", "기존 JSON 가져오기", "파일 앱에서 Source JSON을 선택해 계속 편집합니다.")
+                            feature("arrow.down.doc", "기존 JSON 불러오기", "파일 앱이나 GitHub 저장소의 소스 JSON을 불러옵니다.")
                             feature("ipad.and.iphone", "iPhone·iPad 지원", "화면 크기에 맞는 편집 화면으로 작업합니다.")
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 10)
 
                         Button(action: importAction) {
-                            Text("JSON 가져오기")
+                            Text("JSON 불러오기")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -1239,6 +1259,12 @@ struct JSONScreen: View {
                     actionButtons(uploadTitle: "GitHub에 업로드하기")
                         .fixedSize(horizontal: true, vertical: false)
                     actionButtons(uploadTitle: "GitHub 업로드")
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) { importButton; exportButton }
+                        uploadButton(title: "GitHub에 업로드하기")
+                    }
+                    .font(.subheadline)
                 }
                 if store.issues.isEmpty {
                     Label("필수 항목 검사를 통과했습니다", systemImage: "checkmark.circle.fill")
@@ -1263,17 +1289,26 @@ struct JSONScreen: View {
 
     private func actionButtons(uploadTitle: String) -> some View {
         HStack(spacing: 6) {
-            Button(action: importAction) { Label("가져오기", systemImage: "square.and.arrow.down") }
-                .buttonStyle(.bordered)
-            Button(action: exportAction) { Label("JSON 저장", systemImage: "square.and.arrow.up") }
-                .buttonStyle(.borderedProminent)
-            Button { showingGitHubUpload = true } label: {
-                Label(uploadTitle, systemImage: "arrow.up.circle")
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("GitHub에 업로드하기")
+            importButton
+            exportButton
+            uploadButton(title: uploadTitle)
         }
         .font(.subheadline)
+    }
+
+    private var importButton: some View {
+        Button(action: importAction) { Label("JSON 불러오기", systemImage: "square.and.arrow.down") }
+            .buttonStyle(.bordered)
+    }
+
+    private var exportButton: some View {
+        Button(action: exportAction) { Label("JSON 저장", systemImage: "square.and.arrow.up") }
+            .buttonStyle(.borderedProminent)
+    }
+
+    private func uploadButton(title: String) -> some View {
+        Button { showingGitHubUpload = true } label: { Label(title, systemImage: "arrow.up.circle") }
+            .buttonStyle(.bordered).accessibilityLabel("GitHub에 업로드하기")
     }
 }
 
