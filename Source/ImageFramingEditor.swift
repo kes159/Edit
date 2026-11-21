@@ -67,17 +67,16 @@ struct ImageFramingEditor: View {
     let onApply: (Data) -> Void
     @State private var zoom: CGFloat = 1
     @State private var position: CGSize = .zero
-    @State private var background = FrameBackground.white
     @State private var renderFailed = false
     @GestureState private var drag: CGSize = .zero
     @GestureState private var pinch: CGFloat = 1
 
     private var output: CGSize { profile.outputSize(for: image) }
-    private var fillZoom: CGFloat {
-        max(output.width / image.size.width, output.height / image.size.height)
+    private var maximumZoom: CGFloat {
+        let fillScale = max(output.width / image.size.width, output.height / image.size.height)
             / profile.fitScale(image: image.size, canvas: output)
+        return max(6, fillScale * 2)
     }
-    private var maximumZoom: CGFloat { max(6, fillZoom * 2) }
 
     var body: some View {
         NavigationStack {
@@ -90,26 +89,8 @@ struct ImageFramingEditor: View {
                     canvas(size)
                         .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 }
-                Text("사진을 끌어 위치를 바꾸고 두 손가락이나 슬라이더로 크기를 조절하세요.")
+                Text("사진을 끌어 위치를 바꾸고 두 손가락으로 확대·축소하세요.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                HStack {
-                    Image(systemName: "minus.magnifyingglass")
-                    Slider(value: $zoom, in: 0.2...maximumZoom)
-                        .accessibilityLabel("이미지 확대 및 축소")
-                    Image(systemName: "plus.magnifyingglass")
-                }
-                HStack {
-                    Button("전체 맞춤") { zoom = 1; position = .zero }
-                    Button("프레임 채우기") { zoom = min(maximumZoom, fillZoom); position = .zero }
-                    Button("가운데") { position = .zero }
-                }
-                .buttonStyle(.bordered)
-                Picker("여백 배경", selection: $background) {
-                    ForEach(FrameBackground.allCases.filter { profile != .poster || $0 != .transparent }) {
-                        Text($0.rawValue).tag($0)
-                    }
-                }
-                .pickerStyle(.segmented)
                 Text("적용한 이미지만 Cloudinary에 공개 업로드됩니다. 원본 사진은 변경되지 않습니다.")
                     .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
@@ -146,7 +127,7 @@ struct ImageFramingEditor: View {
                             height: position.height + drag.height / size.height)
         let rect = drawingRect(canvas: size, scale: scale, offset: offset)
         return ZStack {
-            background.color
+            Color.white
             Image(uiImage: image).resizable()
                 .frame(width: rect.width, height: rect.height)
                 .position(x: rect.midX, y: rect.midY)
@@ -178,26 +159,13 @@ struct ImageFramingEditor: View {
     private func render() -> Data? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        format.opaque = background != .transparent
+        format.opaque = true
         let rendered = UIGraphicsImageRenderer(size: output, format: format).image { context in
-            background.uiColor.setFill()
+            UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: output))
             context.cgContext.interpolationQuality = .high
             image.draw(in: drawingRect(canvas: output, scale: zoom, offset: position))
         }
         return rendered.pngData()
     }
-}
-
-private enum FrameBackground: String, CaseIterable, Identifiable {
-    case white = "흰색", black = "검정", transparent = "투명"
-    var id: String { rawValue }
-    var uiColor: UIColor {
-        switch self {
-        case .white: .white
-        case .black: .black
-        case .transparent: .clear
-        }
-    }
-    var color: Color { Color(uiColor: uiColor) }
 }
