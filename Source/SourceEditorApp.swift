@@ -29,6 +29,7 @@ struct RootView: View {
     @State private var confirmingNewProject = false
     @State private var selectedSection: EditorSection? = .source
     @State private var selectedTab: EditorSection = .source
+    @State private var navigationIDs = Dictionary(uniqueKeysWithValues: EditorSection.allCases.map { ($0, UUID()) })
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
     @State private var previewRequest: JSONPreviewRequest?
     @StateObject private var scrollNavigation = EditorScrollNavigation()
@@ -148,7 +149,11 @@ struct RootView: View {
             let wasEditing = scrollNavigation.isEditing(current)
             scrollNavigation.editorWillLeave.send(current)
             store.persistCurrentDraft()
-            if wasEditing { showAutosaveNotice() }
+            if wasEditing {
+                // Commit local editor drafts before removing their navigation destinations.
+                navigationIDs[current] = UUID()
+                showAutosaveNotice()
+            }
         }
         selectedTab = section
         selectedSection = section
@@ -172,15 +177,19 @@ struct RootView: View {
                     navigate(to: .apps)
                 })
             }
+                .id(navigationIDs[.source])
                 .tabItem { Label("소스", systemImage: "square.stack.3d.up") }
                 .tag(EditorSection.source)
             NavigationStack { AppsScreen(viewCodeAction: showAppCode) }
+                .id(navigationIDs[.apps])
                 .tabItem { Label("앱", systemImage: "apps.iphone") }
                 .tag(EditorSection.apps)
             NavigationStack { NewsScreen(viewCodeAction: { showCode(.news(index: $0)) }) }
+                .id(navigationIDs[.news])
                 .tabItem { Label("뉴스", systemImage: "newspaper") }
                 .tag(EditorSection.news)
             NavigationStack { fileScreen }
+                .id(navigationIDs[.file])
                 .tabItem { Label("파일", systemImage: "folder") }
                 .tag(EditorSection.file)
         }
@@ -223,6 +232,8 @@ struct RootView: View {
                 case .file: fileScreen
                 }
             }
+            // A shared detail stack otherwise keeps a pushed editor above the new section.
+            .id(navigationIDs[selectedSection ?? .source])
         }
         .navigationSplitViewStyle(.balanced)
         .environment(\.editorUsesSidebarLayout, true)
