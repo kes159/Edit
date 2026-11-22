@@ -10,7 +10,7 @@ private func linkedApp(for news: SourceNews, in apps: [SourceApp]) -> SourceApp?
 
 struct NewsScreen: View {
     @EnvironmentObject private var store: SourceStore
-    let viewCodeAction: () -> Void
+    let viewCodeAction: (Int) -> Void
     @State private var search = ""
     @State private var editing = false
     @State private var newsToDeleteIndex: Int?
@@ -105,7 +105,7 @@ struct NewsScreen: View {
     @ViewBuilder private func editor(at index: Int) -> some View {
         if store.source.news.indices.contains(index) {
             NewsEditor(news: $store.source.news[index], apps: store.source.apps,
-                       viewCodeAction: viewCodeAction,
+                       viewCodeAction: { viewCodeAction(index) },
                        deleteAction: {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                     if store.source.news.indices.contains(index) { store.source.news.remove(at: index) }
@@ -492,6 +492,7 @@ private func newsDisplayDate(_ value: String) -> String {
 }
 
 struct FileScreen: View {
+    let previewRequest: JSONPreviewRequest?
     @State private var showingGitHubUpload = false
     let newAction: () -> Void
     let importAction: () -> Void
@@ -499,25 +500,34 @@ struct FileScreen: View {
     private let green = Color(red: 0.02, green: 0.71, blue: 0.57)
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                HStack(spacing: 10) {
-                    Image(systemName: "folder").font(.title2).foregroundStyle(.purple)
-                    Text("파일").font(.title2.bold())
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 30) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "folder").font(.title2).foregroundStyle(.purple)
+                        Text("파일").font(.title2.bold())
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 17)
+                    .background(LinearGradient(colors: [Color.mint.opacity(0.1), Color.mint.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
+                    actionGroup("Actions", rows: [
+                        ("folder.badge.plus", "소스 새로 만들기", newAction),
+                        ("folder", "JSON 불러오기", importAction),
+                        ("square.and.arrow.up", "JSON 내보내기", exportAction),
+                        ("arrow.up.circle", "GitHub에 업로드하기", { showingGitHubUpload = true })
+                    ])
+                    JSONPreviewContent(request: previewRequest)
+                        .padding(.horizontal, 16)
+                        .id("jsonPreview")
                 }
-                .frame(maxWidth: .infinity).padding(.vertical, 17)
-                .background(LinearGradient(colors: [Color.mint.opacity(0.1), Color.mint.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
-                actionGroup("Actions", rows: [
-                    ("folder.badge.plus", "소스 새로 만들기", newAction),
-                    ("folder", "JSON 불러오기", importAction),
-                    ("square.and.arrow.up", "JSON 내보내기", exportAction),
-                    ("arrow.up.circle", "GitHub에 업로드하기", { showingGitHubUpload = true })
-                ])
-                JSONPreviewContent()
-                    .padding(.horizontal, 16)
+                .frame(maxWidth: 780).frame(maxWidth: .infinity)
+                .padding(.bottom, 30)
             }
-            .frame(maxWidth: 780).frame(maxWidth: .infinity)
-            .padding(.bottom, 30)
+            .onAppear {
+                if previewRequest != nil { proxy.scrollTo("jsonPreview", anchor: .top) }
+            }
+            .onChange(of: previewRequest?.id) { _, _ in
+                proxy.scrollTo("jsonPreview", anchor: .top)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingGitHubUpload) { GitHubUploadSheet() }

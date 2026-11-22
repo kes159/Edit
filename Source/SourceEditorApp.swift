@@ -28,6 +28,7 @@ struct RootView: View {
     @State private var selectedSection: EditorSection? = .source
     @State private var selectedTab: EditorSection = .source
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
+    @State private var previewRequest: JSONPreviewRequest?
 
     var body: some View {
         Group {
@@ -39,6 +40,7 @@ struct RootView: View {
                         if store.hasSavedDraft {
                             confirmingNewProject = true
                         } else {
+                            previewRequest = nil
                             store.newProject()
                             showWelcome = false
                         }
@@ -94,6 +96,7 @@ struct RootView: View {
         } message: { Text(store.message ?? "") }
         .confirmationDialog("현재 작업을 지우고 새 프로젝트를 만들까요?", isPresented: $confirmingNewProject) {
             Button("새 프로젝트 만들기", role: .destructive) {
+                previewRequest = nil
                 store.newProject()
                 showWelcome = false
                 selectedTab = .source
@@ -110,17 +113,17 @@ struct RootView: View {
     private var compactLayout: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                SourceEditor(viewCodeAction: { selectedTab = .file }, addAppAction: {
+                SourceEditor(viewCodeAction: { showCode(.source) }, addAppAction: {
                     store.source.apps.append(SourceApp())
                     selectedTab = .apps
                 })
             }
                 .tabItem { Label("소스", systemImage: "square.stack.3d.up") }
                 .tag(EditorSection.source)
-            NavigationStack { AppsScreen() }
+            NavigationStack { AppsScreen(viewCodeAction: showAppCode) }
                 .tabItem { Label("앱", systemImage: "apps.iphone") }
                 .tag(EditorSection.apps)
-            NavigationStack { NewsScreen(viewCodeAction: { selectedTab = .file }) }
+            NavigationStack { NewsScreen(viewCodeAction: { showCode(.news(index: $0)) }) }
                 .tabItem { Label("뉴스", systemImage: "newspaper") }
                 .tag(EditorSection.news)
             NavigationStack { fileScreen }
@@ -147,12 +150,12 @@ struct RootView: View {
         } detail: {
             NavigationStack {
                 switch selectedSection ?? .source {
-                case .source: SourceEditor(viewCodeAction: { selectedSection = .file }, addAppAction: {
+                case .source: SourceEditor(viewCodeAction: { showCode(.source) }, addAppAction: {
                     store.source.apps.append(SourceApp())
                     selectedSection = .apps
                 })
-                case .apps: AppsScreen()
-                case .news: NewsScreen(viewCodeAction: { selectedSection = .file })
+                case .apps: AppsScreen(viewCodeAction: showAppCode)
+                case .news: NewsScreen(viewCodeAction: { showCode(.news(index: $0)) })
                 case .file: fileScreen
                 }
             }
@@ -162,13 +165,25 @@ struct RootView: View {
 
     private var fileScreen: some View {
         FileScreen(
+            previewRequest: previewRequest,
             newAction: {
                 if store.hasSavedDraft { confirmingNewProject = true }
-                else { store.newProject(); selectedTab = .source; selectedSection = .source }
+                else { previewRequest = nil; store.newProject(); selectedTab = .source; selectedSection = .source }
             },
             importAction: { showingImportOptions = true },
             exportAction: beginExport
         )
+    }
+
+    private func showAppCode(_ index: Int) {
+        guard store.source.apps.indices.contains(index) else { return }
+        showCode(.app(index: index, name: store.source.apps[index].name))
+    }
+
+    private func showCode(_ target: JSONPreviewTarget) {
+        previewRequest = JSONPreviewRequest(target: target)
+        selectedTab = .file
+        selectedSection = .file
     }
 
     private func beginExport() {
@@ -179,6 +194,7 @@ struct RootView: View {
     private func applyRemoteImport() {
         guard let document = pendingRemoteImport else { return }
         pendingRemoteImport = nil
+        previewRequest = nil
         store.applyImportedJSON(document.source, data: document.data)
         showWelcome = false
     }
@@ -213,6 +229,7 @@ struct RootView: View {
                     let remaining = max(0.6, 0.8 - Date().timeIntervalSince(started))
                     DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
                         importProgress = nil
+                        previewRequest = nil
                         store.applyImportedJSON(source, data: data)
                         showWelcome = false
                     }
@@ -1237,8 +1254,108 @@ extension View {
     }
 }
 
+enum JSONPreviewTarget {
+    case source
+    case app(index: Int, name: String)
+    case news(index: Int)
+
+    var label: String {
+        switch self {
+        case .source: "소스 정보"
+        case .app(let index, let name): name.isEmpty ? "앱 \(index + 1)" : "앱 \(index + 1) · \(name)"
+        case .news(let index): "뉴스 \(index + 1)"
+        }
+    }
+}
+
+struct JSONPreviewRequest {
+    let id = UUID()
+    let target: JSONPreviewTarget
+}
+
+/// Finds UTF-16 ranges in the actual exported JSON, ignoring nested keys and quoted braces.
+private enum JSONPreviewLocation {
+    static func range(in text: String, target: JSONPreviewTarget) -> NSRange? {
+        let units = Array(text.utf16)
+        func skipWhitespace(_ start: Int) -> Int {
+            var cursor = start
+            while cursor < units.count, [9, 10, 13, 32].contains(units[cursor]) { cursor += 1 }
+            return cursor
+        }
+        func valueEnd(_ start: Int) -> Int {
+            var cursor = start
+            var depth = 0
+            var quoted = false
+            var escaped = false
+            while cursor < units.count {
+                let unit = units[cursor]
+                if quoted {
+                    if escaped { escaped = false }
+                    else if unit == 92 { escaped = true }
+                    else if unit == 34 {
+                        quoted = false
+                        if depth == 0 { return cursor + 1 }
+                    }
+                } else {
+                    switch unit {
+                    case 34: quoted = true
+                    case 123, 91: depth += 1
+                    case 125, 93:
+                        if depth == 0 { return cursor }
+                        depth -= 1
+                        if depth == 0 { return cursor + 1 }
+                    case 44, 9, 10, 13, 32:
+                        if depth == 0 { return cursor }
+                    default: break
+                    }
+                }
+                cursor += 1
+            }
+            return cursor
+        }
+
+        var cursor = skipWhitespace(0)
+        guard cursor < units.count, units[cursor] == 123 else { return nil }
+        cursor = skipWhitespace(cursor + 1)
+        while cursor < units.count, units[cursor] == 34 {
+            let keyStart = cursor
+            let keyEnd = valueEnd(cursor)
+            let key = String(decoding: units[keyStart..<keyEnd], as: UTF16.self)
+            cursor = skipWhitespace(keyEnd)
+            guard cursor < units.count, units[cursor] == 58 else { return nil }
+            let start = skipWhitespace(cursor + 1)
+            let end = valueEnd(start)
+            switch target {
+            case .source where key == "\"name\"":
+                return NSRange(location: keyStart, length: end - keyStart)
+            case .app(let wanted, _) where key == "\"apps\"",
+                 .news(let wanted) where key == "\"news\"":
+                guard wanted >= 0, start < units.count, units[start] == 91 else { return nil }
+                var itemStart = skipWhitespace(start + 1)
+                var index = 0
+                while itemStart < end, units[itemStart] != 93 {
+                    let itemEnd = valueEnd(itemStart)
+                    guard itemEnd > itemStart else { return nil }
+                    if index == wanted { return NSRange(location: itemStart, length: itemEnd - itemStart) }
+                    index += 1
+                    let separator = skipWhitespace(itemEnd)
+                    guard separator < end, units[separator] == 44 else { return nil }
+                    itemStart = skipWhitespace(separator + 1)
+                }
+                return nil
+            default: break
+            }
+            cursor = skipWhitespace(end)
+            guard cursor < units.count, units[cursor] == 44 else { return nil }
+            cursor = skipWhitespace(cursor + 1)
+        }
+        return nil
+    }
+}
+
 struct JSONPreviewContent: View {
     @EnvironmentObject private var store: SourceStore
+    var request: JSONPreviewRequest? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1253,7 +1370,10 @@ struct JSONPreviewContent: View {
                 }
                 .foregroundStyle(.orange)
             }
-            SelectableJSONTextView(text: store.jsonText)
+            if let request {
+                Text("이동 위치: \(request.target.label)").font(.caption).foregroundStyle(.secondary)
+            }
+            SelectableJSONTextView(text: store.jsonText, request: request)
                 .frame(height: UIDevice.current.userInterfaceIdiom == .pad ? 680 : 520)
                 .background(.black, in: RoundedRectangle(cornerRadius: 12))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -1263,9 +1383,14 @@ struct JSONPreviewContent: View {
 
 private struct SelectableJSONTextView: UIViewRepresentable {
     let text: String
+    let request: JSONPreviewRequest?
 
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+    func makeUIView(context: Context) -> JSONPreviewTextView {
+        let view = JSONPreviewTextView()
+        context.coordinator.request = request
+        view.onLayout = { [weak coordinator = context.coordinator] view in
+            coordinator?.focusIfNeeded(view)
+        }
         view.delegate = context.coordinator
         view.isEditable = false
         view.isSelectable = true
@@ -1280,19 +1405,48 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: UITextView, context: Context) {
-        guard view.text != text else { return }
-        let selection = view.selectedRange
-        let offset = view.contentOffset
-        view.attributedText = JSONPreviewSyntax.attributedText(text)
-        let location = min(selection.location, text.utf16.count)
-        view.selectedRange = NSRange(location: location, length: min(selection.length, text.utf16.count - location))
-        view.setContentOffset(offset, animated: false)
+    func updateUIView(_ view: JSONPreviewTextView, context: Context) {
+        context.coordinator.request = request
+        if view.text != text {
+            let selection = view.selectedRange
+            let offset = view.contentOffset
+            view.attributedText = JSONPreviewSyntax.attributedText(text)
+            let location = min(selection.location, text.utf16.count)
+            view.selectedRange = NSRange(location: location, length: min(selection.length, text.utf16.count - location))
+            view.setContentOffset(offset, animated: false)
+        }
+        view.setNeedsLayout()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject, UITextViewDelegate {
+        var request: JSONPreviewRequest?
+        private var focusedID: UUID?
+
+        func focusIfNeeded(_ view: UITextView) {
+            guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0,
+                  let request, focusedID != request.id,
+                  let range = JSONPreviewLocation.range(in: view.text, target: request.target) else { return }
+            focusedID = request.id
+            view.layoutManager.ensureLayout(for: view.textContainer)
+            let anchor = NSRange(location: range.location, length: min(1, range.length))
+            let glyphs = view.layoutManager.glyphRange(forCharacterRange: anchor, actualCharacterRange: nil)
+            let rect = view.layoutManager.boundingRect(forGlyphRange: glyphs, in: view.textContainer)
+            let maximum = max(0, view.contentSize.height - view.bounds.height + view.adjustedContentInset.bottom)
+            let y = min(maximum, max(0, rect.minY + view.textContainerInset.top - 8))
+            view.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+            let fullRange = NSRange(location: 0, length: view.text.utf16.count)
+            view.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+            view.layoutManager.addTemporaryAttribute(.backgroundColor,
+                value: UIColor.systemBlue.withAlphaComponent(0.3), forCharacterRange: range)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak view] in
+                guard self?.focusedID == request.id, let view else { return }
+                view.layoutManager.removeTemporaryAttribute(.backgroundColor,
+                    forCharacterRange: NSRange(location: 0, length: view.text.utf16.count))
+            }
+        }
+
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
             let selectAll = UIAction(title: "전체 선택") { [weak textView] _ in
@@ -1304,6 +1458,20 @@ private struct SelectableJSONTextView: UIViewRepresentable {
             }
             return UIMenu(children: suggestedActions + [selectAll, copyAll])
         }
+    }
+}
+
+private final class JSONPreviewTextView: UITextView {
+    var onLayout: ((UITextView) -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?(self)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setNeedsLayout()
     }
 }
 
