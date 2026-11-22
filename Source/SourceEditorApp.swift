@@ -130,6 +130,7 @@ struct RootView: View {
                 .tabItem { Label("파일", systemImage: "folder") }
                 .tag(EditorSection.file)
         }
+        .background(TabReselectionScrollToTop().frame(width: 0, height: 0))
     }
 
     private var iPadLayout: some View {
@@ -380,6 +381,120 @@ struct WelcomeScreen: View {
                 Text(detail).font(.subheadline).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+/// SwiftUI's selection binding does not report taps on the already selected tab.
+/// Observe the native delegate while forwarding SwiftUI's existing delegate calls.
+private struct TabReselectionScrollToTop: UIViewControllerRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIViewController(context: Context) -> ProbeController {
+        let controller = ProbeController()
+        controller.onResolve = { [weak coordinator = context.coordinator] probe in
+            coordinator?.attach(from: probe)
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: ProbeController, context: Context) {
+        DispatchQueue.main.async { [weak controller] in controller?.resolve() }
+    }
+
+    static func dismantleUIViewController(_ controller: ProbeController, coordinator: Coordinator) {
+        controller.onResolve = nil
+        coordinator.detach()
+    }
+
+    final class ProbeController: UIViewController {
+        var onResolve: ((UIViewController) -> Void)?
+
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            resolve()
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            resolve()
+        }
+
+        func resolve() { onResolve?(self) }
+    }
+
+    final class Coordinator: NSObject, UITabBarControllerDelegate {
+        private weak var controller: UITabBarController?
+        private weak var forwardedDelegate: UITabBarControllerDelegate?
+
+        func attach(from probe: UIViewController) {
+            guard let root = probe.view.window?.rootViewController,
+                  let tabController = findTabController(in: root) else { return }
+            if controller !== tabController { detach(); controller = tabController }
+            if tabController.delegate !== self {
+                forwardedDelegate = tabController.delegate
+                tabController.delegate = self
+            }
+        }
+
+        func detach() {
+            if let controller, controller.delegate === self { controller.delegate = forwardedDelegate }
+            controller = nil
+            forwardedDelegate = nil
+        }
+
+        override func responds(to selector: Selector!) -> Bool {
+            super.responds(to: selector) || (forwardedDelegate?.responds(to: selector) ?? false)
+        }
+
+        override func forwardingTarget(for selector: Selector!) -> Any? {
+            if let forwardedDelegate, forwardedDelegate.responds(to: selector) { return forwardedDelegate }
+            return super.forwardingTarget(for: selector)
+        }
+
+        func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+            let allowed = forwardedDelegate?.tabBarController?(tabBarController, shouldSelect: viewController) ?? true
+            if allowed, tabBarController.selectedViewController === viewController {
+                DispatchQueue.main.async { [weak self, weak tabBarController, weak viewController] in
+                    guard let self, let tabBarController, let viewController,
+                          self.controller === tabBarController,
+                          tabBarController.selectedViewController === viewController else { return }
+                    // Use the outer visible scroll view so the File tab returns to its header,
+                    // rather than scrolling only the nested JSON text view.
+                    if let scroll = self.outerScrollView(in: viewController.view) {
+                        viewController.view.endEditing(true)
+                        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x,
+                                                        y: -scroll.adjustedContentInset.top), animated: true)
+                    }
+                }
+            }
+            return allowed
+        }
+
+        private func findTabController(in root: UIViewController) -> UITabBarController? {
+            if let tabs = root as? UITabBarController { return tabs }
+            for child in root.children {
+                if let tabs = findTabController(in: child) { return tabs }
+            }
+            return nil
+        }
+
+        private func outerScrollView(in view: UIView) -> UIScrollView? {
+            guard !view.isHidden, view.alpha > 0, let window = view.window,
+                  view.convert(view.bounds, to: window).intersects(window.bounds) else { return nil }
+            if let scroll = view as? UIScrollView, scroll.isScrollEnabled,
+               scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom > scroll.bounds.height + 1 {
+                return scroll
+            }
+            for child in view.subviews {
+                if let scroll = outerScrollView(in: child) { return scroll }
+            }
+            return nil
         }
     }
 }
