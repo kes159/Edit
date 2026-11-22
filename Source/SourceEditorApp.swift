@@ -32,6 +32,8 @@ struct RootView: View {
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
     @State private var previewRequest: JSONPreviewRequest?
     @StateObject private var scrollNavigation = EditorScrollNavigation()
+    @State private var showingAutosaveNotice = false
+    @State private var autosaveNoticeTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -118,14 +120,56 @@ struct RootView: View {
         .onChange(of: selectedSection) { _, section in
             if let section, selectedTab != section { selectedTab = section }
         }
+        .overlay {
+            if showingAutosaveNotice {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("자동 저장 되었습니다").font(.callout.weight(.medium))
+                }
+                .padding(.horizontal, 20).padding(.vertical, 16)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+            }
+        }
+        .onDisappear { autosaveNoticeTask?.cancel() }
+    }
+
+    private var tabSelection: Binding<EditorSection> {
+        Binding(get: { selectedTab }, set: { navigate(to: $0) })
+    }
+
+    private func navigate(to section: EditorSection) {
+        let current = UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+            ? (selectedSection ?? .source) : selectedTab
+        if current != section {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            let wasEditing = scrollNavigation.isEditing(current)
+            scrollNavigation.editorWillLeave.send(current)
+            store.persistCurrentDraft()
+            if wasEditing { showAutosaveNotice() }
+        }
+        selectedTab = section
+        selectedSection = section
+    }
+
+    private func showAutosaveNotice() {
+        autosaveNoticeTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.15)) { showingAutosaveNotice = true }
+        autosaveNoticeTask = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: 1_500_000_000) }
+            catch { return }
+            withAnimation(.easeOut(duration: 0.2)) { showingAutosaveNotice = false }
+        }
     }
 
     private var compactLayout: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: tabSelection) {
             NavigationStack {
                 SourceEditor(viewCodeAction: { showCode(.source) }, addAppAction: {
                     store.source.apps.append(SourceApp())
-                    selectedTab = .apps
+                    navigate(to: .apps)
                 })
             }
                 .tabItem { Label("소스", systemImage: "square.stack.3d.up") }
@@ -148,7 +192,7 @@ struct RootView: View {
             List(EditorSection.allCases) { section in
                 Button {
                     if selectedSection == section { scrollNavigation.scrollToTop(section) }
-                    else { selectedSection = section }
+                    else { navigate(to: section) }
                 } label: {
                     Label(section.title, systemImage: section.icon)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,7 +216,7 @@ struct RootView: View {
                 switch selectedSection ?? .source {
                 case .source: SourceEditor(viewCodeAction: { showCode(.source) }, addAppAction: {
                     store.source.apps.append(SourceApp())
-                    selectedSection = .apps
+                    navigate(to: .apps)
                 })
                 case .apps: AppsScreen(viewCodeAction: showAppCode)
                 case .news: NewsScreen(viewCodeAction: { showCode(.news(index: $0)) })
@@ -203,8 +247,7 @@ struct RootView: View {
 
     private func showCode(_ target: JSONPreviewTarget) {
         previewRequest = JSONPreviewRequest(target: target)
-        selectedTab = .file
-        selectedSection = .file
+        navigate(to: .file)
     }
 
     private func beginExport() {
@@ -417,6 +460,12 @@ extension EnvironmentValues {
 }
 
 final class EditorScrollNavigation: ObservableObject {
+    let editorWillLeave = PassthroughSubject<EditorSection, Never>()
+    private var editors: [UUID: EditorSection] = [:]
+    func registerEditor(_ id: UUID, section: EditorSection) { editors[id] = section }
+    func unregisterEditor(_ id: UUID) { editors.removeValue(forKey: id) }
+    func isEditing(_ section: EditorSection) -> Bool { editors.values.contains(section) }
+
     // An event stream prevents a previous request from replaying after rotation.
     let requests = PassthroughSubject<EditorSection, Never>()
     private final class ScrollReference {
@@ -454,6 +503,16 @@ final class EditorScrollNavigation: ObservableObject {
     }
 }
 
+private struct EditorScreenMarker: ViewModifier {
+    @EnvironmentObject private var navigation: EditorScrollNavigation
+    @State private var id = UUID()
+    let section: EditorSection
+    func body(content: Content) -> some View {
+        content.onAppear { navigation.registerEditor(id, section: section) }
+            .onDisappear { navigation.unregisterEditor(id) }
+    }
+}
+
 private struct EditorScrollAnchor: ViewModifier {
     @EnvironmentObject private var navigation: EditorScrollNavigation
     let section: EditorSection
@@ -478,6 +537,8 @@ private struct EditorScrollToTop: ViewModifier {
 }
 
 extension View {
+    func editingScreen(_ section: EditorSection) -> some View { modifier(EditorScreenMarker(section: section)) }
+
     func registerScrollToTop(_ section: EditorSection) -> some View {
         modifier(EditorScrollAnchor(section: section))
     }
@@ -719,6 +780,7 @@ struct SourceEditor: View {
         }
         .toolbar(usesSidebarLayout ? .visible : .hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
+        .editingScreen(.source)
         .keyboardDismissButton()
         }
     }
@@ -1211,6 +1273,7 @@ func sourceHexColor(_ color: Color) -> String {
 
 struct VersionEditor: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var navigation: EditorScrollNavigation
     @Binding var version: SourceVersion
     @State private var draft: SourceVersion
     @State private var sizeText = ""
@@ -1345,6 +1408,12 @@ struct VersionEditor: View {
         }
         .onChange(of: sizeText) { _, _ in updateSize() }
         .onChange(of: sizeUnit) { _, _ in sizeText = sizeDisplay(draft.size) }
+        .onReceive(navigation.editorWillLeave) { section in
+            guard section == .apps else { return }
+            if didLoadSize { updateSize() }
+            version = draft
+        }
+        .editingScreen(.apps)
         .keyboardDismissButton()
     }
 
@@ -1370,7 +1439,7 @@ struct VersionEditor: View {
 
     private func updateSize() {
         let value = (Double(sizeText.replacingOccurrences(of: ",", with: ".")) ?? 0) * sizeMultiplier
-        draft.size = value.isFinite && value >= 0 && value <= Double(Int.max) ? Int(value.rounded()) : 0
+        draft.size = value.isFinite && value >= 0 ? (Int(exactly: value.rounded()) ?? 0) : 0
     }
 }
 
@@ -1382,6 +1451,7 @@ struct ScreenshotsEditor: View {
             screenshotSection("iPad", items: $screenshots.ipad)
         }
         .navigationTitle("스크린샷")
+        .editingScreen(.apps)
         .keyboardDismissButton()
     }
     private func screenshotSection(_ title: String, items: Binding<[Screenshot]>) -> some View {
@@ -1433,6 +1503,7 @@ struct PermissionsEditor: View {
             }
         }
         .navigationTitle("권한")
+        .editingScreen(.apps)
         .keyboardDismissButton()
     }
 }

@@ -11,6 +11,8 @@ struct ScannedAppPackage {
     var buildVersion: String = ""
     var minOSVersion: String = ""
     var iconData: Data?
+    var tintColor = ""
+    var privacy: [String: String] = [:]
 }
 
 enum AppPackageScanner {
@@ -62,6 +64,11 @@ enum AppPackageScanner {
         result.buildVersion = firstString(info, ["CFBundleVersion"])
         result.minOSVersion = firstString(info, ["MinimumOSVersion"])
         result.iconData = iconData(in: archive, root: root, info: info, infoData: infoData)
+        result.privacy = info.reduce(into: [:]) { values, entry in
+            if entry.key.hasPrefix("NS"), entry.key.hasSuffix("UsageDescription"),
+               let value = entry.value as? String, !value.isEmpty { values[entry.key] = value }
+        }
+        if let data = result.iconData { result.tintColor = suggestedTint(from: data) }
         return result
     }
 
@@ -130,6 +137,37 @@ enum AppPackageScanner {
         if result.buildVersion.isEmpty { result.buildVersion = nested.buildVersion }
         if result.minOSVersion.isEmpty { result.minOSVersion = nested.minOSVersion }
         result.iconData = nested.iconData
+        if result.tintColor.isEmpty { result.tintColor = nested.tintColor }
+        result.privacy.merge(nested.privacy) { current, _ in current }
+    }
+
+    private static func suggestedTint(from data: Data) -> String {
+        guard let image = UIImage(data: data)?.cgImage else { return "" }
+        var pixels = [UInt8](repeating: 0, count: 32 * 32 * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: 32, height: 32,
+                bitsPerComponent: 8, bytesPerRow: 128, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 32, height: 32))
+            return true
+        }
+        guard drawn else { return "" }
+        var buckets: [Int: (count: Int, r: Int, g: Int, b: Int)] = [:]
+        var total = (count: 0, r: 0, g: 0, b: 0)
+        for offset in stride(from: 0, to: pixels.count, by: 4) where pixels[offset + 3] >= 200 {
+            let r = Int(pixels[offset]), g = Int(pixels[offset + 1]), b = Int(pixels[offset + 2])
+            total = (total.count + 1, total.r + r, total.g + g, total.b + b)
+            let maximum = max(r, max(g, b)), minimum = min(r, min(g, b))
+            guard maximum >= 64, maximum - minimum >= maximum / 4 else { continue }
+            let key = (r >> 4) << 8 | (g >> 4) << 4 | (b >> 4)
+            let old = buckets[key] ?? (count: 0, r: 0, g: 0, b: 0)
+            buckets[key] = (old.count + 1, old.r + r, old.g + g, old.b + b)
+        }
+        let color = buckets.max { left, right in
+            left.value.count == right.value.count ? left.key < right.key : left.value.count < right.value.count
+        }?.value ?? total
+        guard color.count > 0 else { return "" }
+        return String(format: "#%02x%02x%02x", color.r / color.count, color.g / color.count, color.b / color.count)
     }
 
     private static func iconData(in archive: Archive, root: String, info: [String: Any], infoData: Data) -> Data? {

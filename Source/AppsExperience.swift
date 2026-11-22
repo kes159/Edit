@@ -706,8 +706,189 @@ struct AppsScreen: View {
     }
 }
 
+private enum AppPackageVersionPolicy {
+    static func contains(_ version: String, in versions: [String]) -> Bool {
+        let value = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !value.isEmpty && versions.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == value }
+    }
+}
+
+private enum AppPackageField: Hashable { case icon, name, bundleID, tint, privacy }
+
+private struct AppPackageDataSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let package: ScannedAppPackage
+    let versions: [String]
+    let onImport: (Set<AppPackageField>) -> Void
+    let onAddVersion: () -> Void
+    @State private var selected: Set<AppPackageField>
+    @State private var imported = false
+
+    init(package: ScannedAppPackage, versions: [String], onImport: @escaping (Set<AppPackageField>) -> Void,
+         onAddVersion: @escaping () -> Void) {
+        self.package = package
+        self.versions = versions
+        self.onImport = onImport
+        self.onAddVersion = onAddVersion
+        var fields: Set<AppPackageField> = []
+        if package.iconData != nil { fields.insert(.icon) }
+        if !package.name.isEmpty { fields.insert(.name) }
+        if !package.bundleIdentifier.isEmpty { fields.insert(.bundleID) }
+        if !package.tintColor.isEmpty { fields.insert(.tint) }
+        if !package.privacy.isEmpty { fields.insert(.privacy) }
+        _selected = State(initialValue: fields)
+    }
+
+    private var alreadyAdded: Bool { AppPackageVersionPolicy.contains(package.version, in: versions) }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    Text("파일에서 편집기에 가져올 앱 정보를 선택하세요.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Text(package.fileName).font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 22) {
+                        selectionRow(.icon, title: "아이콘", available: package.iconData != nil) {
+                            if let data = package.iconData, let image = UIImage(data: data) {
+                                Image(uiImage: image).resizable().scaledToFit().frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                            } else { Text("아이콘을 읽지 못했습니다.").foregroundStyle(.secondary) }
+                        }
+                        selectionRow(.name, title: "앱 이름", available: !package.name.isEmpty) { Text(package.name) }
+                        selectionRow(.bundleID, title: "번들 ID(BundleIdentifier)", available: !package.bundleIdentifier.isEmpty) {
+                            Text(package.bundleIdentifier)
+                        }
+                        selectionRow(.tint, title: "틴트 컬러", available: !package.tintColor.isEmpty) {
+                            HStack(spacing: 6) {
+                                Circle().fill(sourceTintColor(package.tintColor)).frame(width: 20, height: 20)
+                                Text(package.tintColor)
+                            }
+                        }
+                        selectionRow(.privacy, title: "개인정보 사용 설명", available: !package.privacy.isEmpty) {
+                            if package.privacy.isEmpty { Text("읽어 온 항목 없음").foregroundStyle(.secondary) }
+                            else {
+                                AppPackageTagLayout {
+                                    ForEach(package.privacy.keys.sorted(), id: \.self) { key in
+                                        Text(privacyLabel(key)).font(.caption)
+                                            .padding(.horizontal, 9).padding(.vertical, 5)
+                                            .overlay(Capsule().stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                                    }
+                                }
+                            }
+                        }
+                        Button {
+                            onImport(selected)
+                            imported = true
+                        } label: {
+                            Text(imported ? "가져오기 완료" : "Import to editor").font(.headline)
+                                .frame(maxWidth: .infinity).padding(.vertical, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(selected.isEmpty || imported)
+                    }
+                    .padding(20)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
+                    VStack(spacing: 16) {
+                        HStack {
+                            Text("버전")
+                            Spacer()
+                            Text(package.version.isEmpty ? "읽지 못함" : package.version).foregroundStyle(.secondary)
+                            if alreadyAdded {
+                                Text("Added").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                                    .padding(.horizontal, 8).padding(.vertical, 4).background(.green, in: Capsule())
+                            }
+                        }
+                        Divider()
+                        HStack {
+                            Text("파일 크기")
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(package.size), countStyle: .file)).foregroundStyle(.secondary)
+                        }
+                        Divider()
+                        Button(action: onAddVersion) {
+                            Text("Add this version").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(alreadyAdded || package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("버전 번호를 읽지 못했습니다. 버전 메뉴에서 직접 추가해 주세요.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(20)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
+                }
+                .frame(maxWidth: 760).padding(16).frame(maxWidth: .infinity)
+            }
+            .navigationTitle("App Data")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("닫기")
+                }
+            }
+        }
+    }
+
+    private func selectionRow<Content: View>(_ field: AppPackageField, title: String, available: Bool,
+                                            @ViewBuilder content: () -> Content) -> some View {
+        Button {
+            if selected.contains(field) { selected.remove(field) } else { selected.insert(field) }
+            imported = false
+        } label: {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title).font(.caption)
+                    content().font(.subheadline)
+                }
+                .foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: selected.contains(field) ? "checkmark.circle.fill" : "circle")
+                    .font(.title2).foregroundStyle(selected.contains(field) ? Color.blue : Color.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).disabled(!available)
+        .accessibilityLabel(title + " 가져오기")
+        .accessibilityValue(selected.contains(field) ? "선택됨" : "선택 안 됨")
+    }
+
+    private func privacyLabel(_ key: String) -> String {
+        guard key.hasPrefix("NS"), key.hasSuffix("UsageDescription") else { return key }
+        return String(key.dropFirst(2).dropLast("UsageDescription".count))
+    }
+}
+
+private struct AppPackageTagLayout: Layout {
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> (frames: [CGRect], height: CGFloat) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let ideal = subview.sizeThatFits(.unspecified)
+            let size = subview.sizeThatFits(ProposedViewSize(width: min(ideal.width, width), height: nil))
+            if x > 0, x + size.width > width { x = 0; y += rowHeight + 6; rowHeight = 0 }
+            frames.append(CGRect(x: x, y: y, width: size.width, height: size.height))
+            x += size.width + 6
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (frames, y + rowHeight)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let width = max(1, proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 320)
+        return CGSize(width: width, height: arrange(subviews, width: width).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let frames = arrange(subviews, width: max(1, bounds.width)).frames
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + frames[index].minX, y: bounds.minY + frames[index].minY),
+                          anchor: .topLeading, proposal: ProposedViewSize(frames[index].size))
+        }
+    }
+}
+
 private enum AppSheet: String, Identifiable {
-    case addVersion, addPrivacy, addEntitlement, packagePicker
+    case addVersion, addPrivacy, addEntitlement, packagePicker, packageData
     var id: String { rawValue }
 }
 
@@ -764,6 +945,7 @@ struct AppEditor: View {
     @State private var editingVersions = false
     @State private var selectedFileName: String?
     @State private var scanningPackage = false
+    @State private var scannedPackage: ScannedAppPackage?
     @State private var iconUploadTask: Task<Void, Never>?
     @State private var iconUploadID: UUID?
     @State private var iconUploadError: String?
@@ -856,9 +1038,16 @@ struct AppEditor: View {
         .sheet(item: $sheet) { selected in
             switch selected {
             case .addVersion:
-                AddVersionSheet(version: $versionDraft, fileName: selectedFileName) {
+                AddVersionSheet(version: $versionDraft, fileName: selectedFileName, existingVersions: app.versions.map(\.version)) {
+                    guard !AppPackageVersionPolicy.contains(versionDraft.version, in: app.versions.map(\.version)) else { return }
                     app.versions.insert(versionDraft, at: 0)
                     sheet = nil
+                }
+            case .packageData:
+                if let package = scannedPackage {
+                    AppPackageDataSheet(package: package, versions: app.versions.map(\.version),
+                                        onImport: { importPackage(package, fields: $0) },
+                                        onAddVersion: { beginPackageVersion(package) })
                 }
             case .addPrivacy:
                 addPrivacySheet
@@ -874,13 +1063,6 @@ struct AppEditor: View {
         .onChange(of: app.iconURL) { _, value in
             if !value.isEmpty { iconUploadError = nil }
         }
-        .onDisappear {
-            // Keep the automatic upload running while the version sheet is open.
-            if sheet == nil {
-                iconUploadTask?.cancel()
-                iconUploadID = nil
-            }
-        }
         .onChange(of: app.bundleIdentifier) { oldID, newID in
             if !oldID.isEmpty, let index = store.source.featuredApps.firstIndex(of: oldID) {
                 if newID.isEmpty { store.source.featuredApps.remove(at: index) }
@@ -894,6 +1076,7 @@ struct AppEditor: View {
             }
             Button("아니오", role: .cancel) {}
         }
+        .editingScreen(.apps)
         .keyboardDismissButton()
     }
 
@@ -1187,10 +1370,31 @@ struct AppEditor: View {
         }
     }
 
+    private func importPackage(_ package: ScannedAppPackage, fields: Set<AppPackageField>) {
+        if fields.contains(.name) { app.name = package.name }
+        if fields.contains(.bundleID) { app.bundleIdentifier = package.bundleIdentifier }
+        if fields.contains(.tint) { app.tintColor = package.tintColor }
+        if fields.contains(.privacy) { app.appPermissions.privacy.merge(package.privacy) { _, imported in imported } }
+        if fields.contains(.icon), let icon = package.iconData {
+            app.iconPreviewData = icon
+            app.iconURL = ""
+            uploadExtractedIcon(icon)
+        }
+    }
+
+    private func beginPackageVersion(_ package: ScannedAppPackage) {
+        guard !package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !AppPackageVersionPolicy.contains(package.version, in: app.versions.map(\.version)) else { return }
+        versionDraft = SourceVersion()
+        versionDraft.version = package.version
+        versionDraft.buildVersion = package.buildVersion
+        versionDraft.minOSVersion = package.minOSVersion
+        versionDraft.size = package.size
+        selectedFileName = package.fileName
+        sheet = .addVersion
+    }
+
     private func scanSelectedFile(_ url: URL) {
-        iconUploadTask?.cancel()
-        iconUploadID = nil
-        iconUploadError = nil
         sheet = nil
         scanningPackage = true
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1199,20 +1403,8 @@ struct AppEditor: View {
                 scanningPackage = false
                 switch result {
                 case .success(let package):
-                    if !package.name.isEmpty { app.name = package.name }
-                    if !package.bundleIdentifier.isEmpty { app.bundleIdentifier = package.bundleIdentifier }
-                    if let icon = package.iconData {
-                        app.iconPreviewData = icon
-                        app.iconURL = ""
-                        uploadExtractedIcon(icon)
-                    }
-                    versionDraft = SourceVersion()
-                    versionDraft.version = package.version
-                    versionDraft.buildVersion = package.buildVersion
-                    versionDraft.minOSVersion = package.minOSVersion
-                    versionDraft.size = package.size
-                    selectedFileName = package.fileName
-                    sheet = .addVersion
+                    scannedPackage = package
+                    sheet = .packageData
                 case .failure(let error):
                     store.message = "앱 파일을 분석하지 못했습니다: \(error.localizedDescription)"
                 }
@@ -1294,6 +1486,7 @@ private struct AddVersionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var version: SourceVersion
     let fileName: String?
+    let existingVersions: [String]
     let addAction: () -> Void
     @State private var sizeText = ""
     @State private var sizeUnit = "MB"
@@ -1303,6 +1496,7 @@ private struct AddVersionSheet: View {
         !version.downloadURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !version.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && version.size > 0
+            && !AppPackageVersionPolicy.contains(version.version, in: existingVersions)
     }
 
     var body: some View {
@@ -1336,6 +1530,9 @@ private struct AddVersionSheet: View {
                         }
                     }
                     AppInputField(title: "버전 번호 *", text: $version.version, placeholder: "1.0.0")
+                    if AppPackageVersionPolicy.contains(version.version, in: existingVersions) {
+                        Text("이미 등록된 버전입니다.").font(.caption).foregroundStyle(.orange)
+                    }
                     AppInputField(title: "빌드 번호 (선택 사항)", text: $version.buildVersion, placeholder: "123")
                     Text("빌드 번호는 현재 JSON 내보내기 형식에서 제외됩니다.")
                         .font(.caption).foregroundStyle(.secondary).padding(.top, -18)
@@ -1397,7 +1594,8 @@ private struct AddVersionSheet: View {
     }
 
     private func updateSize() {
-        version.size = Int((Double(sizeText) ?? 0) * sizeMultiplier)
+        let value = (Double(sizeText.replacingOccurrences(of: ",", with: ".")) ?? 0) * sizeMultiplier
+        version.size = value.isFinite && value >= 0 ? (Int(exactly: value.rounded()) ?? 0) : 0
     }
 
     private var sizeMultiplier: Double {
