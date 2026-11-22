@@ -1355,6 +1355,7 @@ private enum JSONPreviewLocation {
 
 struct JSONPreviewContent: View {
     @EnvironmentObject private var store: SourceStore
+    @StateObject private var selection = JSONPreviewSelection()
     var request: JSONPreviewRequest? = nil
 
     var body: some View {
@@ -1373,7 +1374,15 @@ struct JSONPreviewContent: View {
             if let request {
                 Text("이동 위치: \(request.target.label)").font(.caption).foregroundStyle(.secondary)
             }
-            SelectableJSONTextView(text: store.jsonText, request: request)
+            HStack(spacing: 16) {
+                Button("선택") { selection.textView?.beginSelection() }
+                Button("복사") { selection.textView?.copySelection() }
+                    .disabled(!selection.hasSelection)
+                Spacer(minLength: 0)
+                Button("전체 복사") { UIPasteboard.general.string = store.jsonText }
+            }
+            .font(.subheadline)
+            SelectableJSONTextView(text: store.jsonText, request: request, selection: selection)
                 .frame(height: UIDevice.current.userInterfaceIdiom == .pad ? 680 : 520)
                 .background(.black, in: RoundedRectangle(cornerRadius: 12))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -1381,13 +1390,21 @@ struct JSONPreviewContent: View {
     }
 }
 
+private final class JSONPreviewSelection: ObservableObject {
+    weak var textView: JSONPreviewTextView?
+    @Published var hasSelection = false
+}
+
 private struct SelectableJSONTextView: UIViewRepresentable {
     let text: String
     let request: JSONPreviewRequest?
+    let selection: JSONPreviewSelection
 
     func makeUIView(context: Context) -> JSONPreviewTextView {
         let view = JSONPreviewTextView()
         context.coordinator.request = request
+        context.coordinator.selection = selection
+        selection.textView = view
         view.onLayout = { [weak coordinator = context.coordinator] view in
             coordinator?.focusIfNeeded(view)
         }
@@ -1407,6 +1424,8 @@ private struct SelectableJSONTextView: UIViewRepresentable {
 
     func updateUIView(_ view: JSONPreviewTextView, context: Context) {
         context.coordinator.request = request
+        context.coordinator.selection = selection
+        selection.textView = view
         if view.text != text {
             let selection = view.selectedRange
             let offset = view.contentOffset
@@ -1422,6 +1441,7 @@ private struct SelectableJSONTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var request: JSONPreviewRequest?
+        weak var selection: JSONPreviewSelection?
         private var focusedID: UUID?
 
         func focusIfNeeded(_ view: UITextView) {
@@ -1429,6 +1449,7 @@ private struct SelectableJSONTextView: UIViewRepresentable {
                   let request, focusedID != request.id,
                   let range = JSONPreviewLocation.range(in: view.text, target: request.target) else { return }
             focusedID = request.id
+            view.selectedRange = NSRange(location: range.location, length: 0)
             view.layoutManager.ensureLayout(for: view.textContainer)
             let anchor = NSRange(location: range.location, length: min(1, range.length))
             let glyphs = view.layoutManager.glyphRange(forCharacterRange: anchor, actualCharacterRange: nil)
@@ -1450,22 +1471,74 @@ private struct SelectableJSONTextView: UIViewRepresentable {
             }
         }
 
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            let hasSelection = textView.selectedRange.length > 0
+            guard let selection else { return }
+            DispatchQueue.main.async { [weak selection] in
+                if selection?.hasSelection != hasSelection { selection?.hasSelection = hasSelection }
+            }
+        }
+
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
-            let selectAll = UIAction(title: "전체 선택") { [weak textView] _ in
-                guard let textView else { return }
-                textView.selectedRange = NSRange(location: 0, length: textView.text.utf16.count)
-            }
-            let copyAll = UIAction(title: "전체 복사", image: UIImage(systemName: "doc.on.doc")) { [weak textView] _ in
-                UIPasteboard.general.string = textView?.text
-            }
-            return UIMenu(children: suggestedActions + [selectAll, copyAll])
+            (textView as? JSONPreviewTextView)?.selectionMenu ?? UIMenu(children: suggestedActions)
         }
     }
 }
 
-private final class JSONPreviewTextView: UITextView {
+private final class JSONPreviewTextView: UITextView, UIEditMenuInteractionDelegate {
     var onLayout: ((UITextView) -> Void)?
+    private lazy var selectionInteraction = UIEditMenuInteraction(delegate: self)
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    var selectionMenu: UIMenu {
+        let select = UIAction(title: "선택") { [weak self] _ in self?.beginSelection() }
+        let copy = UIAction(title: "복사", image: UIImage(systemName: "doc.on.doc"),
+                            attributes: selectedRange.length > 0 ? [] : .disabled) { [weak self] _ in
+            self?.copySelection()
+        }
+        let selectAll = UIAction(title: "전체 선택") { [weak self] _ in
+            self?.becomeFirstResponder()
+            self?.selectAll(nil)
+        }
+        let copyAll = UIAction(title: "전체 복사", image: UIImage(systemName: "doc.on.doc.fill")) { [weak self] _ in
+            UIPasteboard.general.string = self?.text
+        }
+        return UIMenu(children: [select, copy, selectAll, copyAll])
+    }
+
+    func beginSelection() {
+        guard !text.isEmpty else { return }
+        becomeFirstResponder()
+        if selectedRange.length == 0 {
+            let point = CGPoint(x: bounds.minX + textContainerInset.left + 8,
+                                y: bounds.minY + textContainerInset.top + 8)
+            if let position = closestPosition(to: point) {
+                selectedTextRange = textRange(from: position, to: position)
+            }
+            select(nil)
+            if selectedRange.length == 0 {
+                selectedRange = (text as NSString).rangeOfComposedCharacterSequence(
+                    at: min(selectedRange.location, text.utf16.count - 1))
+            }
+        }
+        if selectionInteraction.view == nil { addInteraction(selectionInteraction) }
+        let rect = selectedTextRange.map { firstRect(for: $0) } ?? bounds
+        let point = CGPoint(x: min(bounds.maxX, max(bounds.minX, rect.midX)),
+                            y: min(bounds.maxY, max(bounds.minY, rect.minY)))
+        selectionInteraction.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+    }
+
+    func copySelection() {
+        guard let range = selectedTextRange, !range.isEmpty else { return }
+        UIPasteboard.general.string = text(in: range)
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        selectionMenu
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()

@@ -29,7 +29,42 @@ enum SideStoreJSONFormatter {
         }
         for key in ["patreonURL", "patreon"] { result.removeValue(forKey: key) }
         removeEmpty(&result, key: "headerURL")
-        return try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys])
+        return try orderedJSONData(result)
+    }
+
+    /// JSON object order is cosmetic; keep app identity first and permissions last.
+    private static func orderedJSONData(_ value: Any) throws -> Data {
+        func scalar(_ value: Any) throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+            return String(decoding: data, as: UTF8.self)
+        }
+        func render(_ value: Any, depth: Int, path: [String]) throws -> String {
+            let indent = String(repeating: "  ", count: depth)
+            let nextIndent = indent + "  "
+            if let object = value as? [String: Any] {
+                guard !object.isEmpty else { return "{}" }
+                var keys = object.keys.sorted()
+                if path == ["apps", "[]"] {
+                    let first = ["name", "bundleIdentifier", "developerName", "subtitle", "localizedDescription",
+                                 "iconURL", "tintColor", "category", "screenshots", "versions"]
+                    keys = first.filter { object[$0] != nil }
+                        + keys.filter { !first.contains($0) && $0 != "appPermissions" }
+                        + (object["appPermissions"] == nil ? [] : ["appPermissions"])
+                }
+                let rows = try keys.map { key in
+                    nextIndent + (try scalar(key)) + " : "
+                        + (try render(object[key]!, depth: depth + 1, path: path + [key]))
+                }
+                return "{\n" + rows.joined(separator: ",\n") + "\n" + indent + "}"
+            }
+            if let array = value as? [Any] {
+                guard !array.isEmpty else { return "[]" }
+                let rows = try array.map { nextIndent + (try render($0, depth: depth + 1, path: path + ["[]"])) }
+                return "[\n" + rows.joined(separator: ",\n") + "\n" + indent + "]"
+            }
+            return try scalar(value)
+        }
+        return Data(try render(value, depth: 0, path: []).utf8)
     }
 
     private static func format(_ app: SourceApp, preserving original: [String: Any]) -> [String: Any] {
