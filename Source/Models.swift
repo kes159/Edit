@@ -11,7 +11,7 @@ private extension KeyedEncodingContainer {
     }
 }
 
-struct Source: Codable {
+struct Source: Codable, Equatable {
     var name = "My Source"
     var identifier = ""
     var subtitle = ""
@@ -52,7 +52,7 @@ struct Source: Codable {
     }
 }
 
-struct SourceApp: Codable {
+struct SourceApp: Codable, Equatable {
     // Stable identity for animated row moves; intentionally omitted from source JSON.
     var editorID = UUID()
     var name = ""
@@ -100,7 +100,7 @@ struct SourceApp: Codable {
     }
 }
 
-struct Screenshot: Codable {
+struct Screenshot: Codable, Equatable {
     // Stable editor identity for asynchronous image uploads; not exported to JSON.
     var editorID = UUID()
     var imageURL = ""
@@ -128,7 +128,7 @@ struct Screenshot: Codable {
     }
 }
 
-struct AppScreenshots: Codable {
+struct AppScreenshots: Codable, Equatable {
     var iphone: [Screenshot] = []
     var ipad: [Screenshot] = []
     enum CodingKeys: String, CodingKey { case iphone, ipad }
@@ -147,7 +147,7 @@ struct AppScreenshots: Codable {
     }
 }
 
-struct SourceVersion: Codable {
+struct SourceVersion: Codable, Equatable {
     var version = ""
     var buildVersion = ""
     var marketingVersion = ""
@@ -179,12 +179,12 @@ struct SourceVersion: Codable {
     }
 }
 
-struct AppPermissions: Codable {
+struct AppPermissions: Codable, Equatable {
     var entitlements: [String] = []
     var privacy: [String: String] = [:]
 }
 
-struct Patreon: Codable {
+struct Patreon: Codable, Equatable {
     var pledge = ""
     var currency = ""
     var benefit = ""
@@ -205,7 +205,7 @@ struct Patreon: Codable {
     }
 }
 
-struct SourceNews: Codable {
+struct SourceNews: Codable, Equatable {
     var title = ""
     var identifier = ""
     var caption = ""

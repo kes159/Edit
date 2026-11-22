@@ -748,7 +748,6 @@ private struct AppPackageDataSheet: View {
                     Text("파일에서 편집기에 가져올 앱 정보를 선택하세요.")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Text(package.fileName).font(.caption).foregroundStyle(.secondary)
-                    versionCard
                     VStack(alignment: .leading, spacing: 22) {
                         selectionRow(.icon, title: "아이콘", available: package.iconData != nil) {
                             if let data = package.iconData, let image = UIImage(data: data) {
@@ -782,7 +781,7 @@ private struct AppPackageDataSheet: View {
                             onImport(selected)
                             imported = true
                         } label: {
-                            Text(imported ? "가져오기 완료" : "Import to editor").font(.headline)
+                            Text(imported ? "가져오기 완료" : "선택한 정보 가져오기").font(.headline)
                                 .frame(maxWidth: .infinity).padding(.vertical, 8)
                         }
                         .buttonStyle(.borderedProminent)
@@ -790,10 +789,11 @@ private struct AppPackageDataSheet: View {
                     }
                     .padding(20)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
+                    versionCard
                 }
                 .frame(maxWidth: 760).padding(16).frame(maxWidth: .infinity)
             }
-            .navigationTitle("App Data")
+            .navigationTitle("앱 정보")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -810,7 +810,7 @@ private struct AppPackageDataSheet: View {
                 Spacer()
                 Text(package.version.isEmpty ? "읽지 못함" : package.version).foregroundStyle(.secondary)
                 if alreadyAdded {
-                    Text("Added").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                    Text("등록됨").font(.caption.weight(.semibold)).foregroundStyle(.white)
                         .padding(.horizontal, 8).padding(.vertical, 4).background(.green, in: Capsule())
                 }
             }
@@ -822,7 +822,7 @@ private struct AppPackageDataSheet: View {
             }
             Divider()
             Button(action: onAddVersion) {
-                Text("Add this version").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+                Text("이 버전 추가").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
             }
             .buttonStyle(.borderedProminent)
             .disabled(alreadyAdded || package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1080,7 +1080,7 @@ struct AppEditor: View {
             }
             Button("아니오", role: .cancel) {}
         }
-        .editingScreen(.apps)
+        .editingScreen(.apps) { app }
         .keyboardDismissButton()
     }
 
