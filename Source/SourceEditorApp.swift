@@ -179,28 +179,9 @@ struct RootView: View {
                 case .file: fileScreen
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                HStack {
-                    Button {
-                        withAnimation {
-                            splitVisibility = splitVisibility == .detailOnly ? .all : .detailOnly
-                        }
-                    } label: {
-                        Image(systemName: "sidebar.left")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(splitVisibility == .detailOnly ? "사이드바 펼치기" : "사이드바 접기")
-                    .accessibilityIdentifier("sidebarToggle")
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 8)
-                .background(.bar)
-            }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
+        .environment(\.editorUsesSidebarLayout, true)
     }
 
     private var fileScreen: some View {
@@ -424,6 +405,17 @@ struct WelcomeScreen: View {
     }
 }
 
+private struct EditorSidebarLayoutKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var editorUsesSidebarLayout: Bool {
+        get { self[EditorSidebarLayoutKey.self] }
+        set { self[EditorSidebarLayoutKey.self] = newValue }
+    }
+}
+
 final class EditorScrollNavigation: ObservableObject {
     // An event stream prevents a previous request from replaying after rotation.
     let requests = PassthroughSubject<EditorSection, Never>()
@@ -608,6 +600,7 @@ enum EditorSection: String, CaseIterable, Identifiable {
 struct SourceEditor: View {
     @EnvironmentObject private var store: SourceStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.editorUsesSidebarLayout) private var usesSidebarLayout
     let viewCodeAction: () -> Void
     let addAppAction: () -> Void
     @State private var searchText = ""
@@ -724,7 +717,8 @@ struct SourceEditor: View {
                 handleDragID = nil
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(usesSidebarLayout ? .visible : .hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
         .keyboardDismissButton()
         }
     }

@@ -385,6 +385,7 @@ struct AppsScreen: View {
     @State private var codeAppID: UUID?
     @EnvironmentObject private var store: SourceStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.editorUsesSidebarLayout) private var usesSidebarLayout
     @State private var search = ""
     @State private var deleting = false
     @State private var appToDeleteID: UUID?
@@ -562,7 +563,8 @@ struct AppsScreen: View {
                 draggedAppID = nil
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(usesSidebarLayout ? .visible : .hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showingEditor) {
             if let editorAppID,
                let index = store.source.apps.firstIndex(where: { $0.editorID == editorAppID }) {
