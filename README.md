@@ -85,5 +85,6 @@ SideStore용 소스 JSON을 만들고 관리하는 SwiftUI iOS 앱입니다. JSO
 - 터미널에서는 `./scripts/build-ipa.sh`로 서명되지 않은 IPA를 `build/Source.ipa`에 만들 수 있습니다.
 - GitHub의 **Actions → Build Source Editor IPA → Run workflow**를 수동 실행하면 빌드 결과에 `Source_Editor.ipa` 아티팩트와 **iPhone/iPad Safari download** 링크가 표시됩니다. iPhone/iPad에서는 결과 화면의 링크를 눌러 해당 저장소의 Release에서 IPA를 직접 받으세요. Actions의 아티팩트 미리보기 화면에서 파일을 저장하면 일부 환경에서 끝부분이 잘린 파일이 만들어질 수 있습니다.
 - IPA 다운로드 링크 아래에는 **최신 커밋 수정사항**과 빌드 기준 커밋 링크가 표시됩니다. 커밋 본문의 `수정사항:` 문단에 한국어 요약을 기록하면 해당 빌드의 설명으로 사용합니다. 한국어 제목만 있는 커밋은 제목을 표시하며, 한국어 요약이 없는 영문 커밋은 원문 제목과 미등록 안내를 표시합니다.
+- Release 제목은 `Source Editor v앱버전 (빌드 앱빌드번호) · #워크플로번호.시도` 형식으로 생성됩니다. 본문에는 한국어 수정사항, IPA 다운로드, 실제 IPA의 버전·최소 iOS·지원 기기·파일 크기, 설치 방법, 해당 커밋의 사용 가이드, 빌드 로그와 SHA-256이 포함됩니다. `Source_Editor.ipa.sha256` 확인 파일도 IPA와 함께 첨부됩니다.
 - 수동 실행으로 만든 Release는 실행 번호마다 별도로 생성됩니다. 공개 저장소의 Release는 공개되며, 비공개 저장소의 Release는 접근 권한이 있는 사용자만 볼 수 있습니다. IPA는 서명되지 않았으므로 Feather로 서명한 뒤 설치해야 합니다. 파일의 생성일과 수정일은 다운로드하는 기기와 방식에 따라 다운로드 시각으로 표시될 수 있습니다.
 - **Actions → Delete past runs and releases → Run workflow**를 수동 실행하면 완료된 워크플로 기록과 모든 Release, 각 Release에 연결된 태그를 삭제합니다. 실행 중인 정리 작업과 Release에 연결되지 않은 태그는 남습니다.
