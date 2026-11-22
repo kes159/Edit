@@ -179,8 +179,28 @@ struct RootView: View {
                 case .file: fileScreen
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
+                    Button {
+                        withAnimation {
+                            splitVisibility = splitVisibility == .detailOnly ? .all : .detailOnly
+                        }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(splitVisibility == .detailOnly ? "사이드바 펼치기" : "사이드바 접기")
+                    .accessibilityIdentifier("sidebarToggle")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8)
+                .background(.bar)
+            }
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar(removing: .sidebarToggle)
     }
 
     private var fileScreen: some View {
@@ -407,7 +427,47 @@ struct WelcomeScreen: View {
 final class EditorScrollNavigation: ObservableObject {
     // An event stream prevents a previous request from replaying after rotation.
     let requests = PassthroughSubject<EditorSection, Never>()
-    func scrollToTop(_ section: EditorSection) { requests.send(section) }
+    private final class ScrollReference {
+        weak var view: UIScrollView?
+        init(_ view: UIScrollView) { self.view = view }
+    }
+    private var scrollViews: [EditorSection: ScrollReference] = [:]
+
+    func register(_ view: UIScrollView, for section: EditorSection) {
+        if scrollViews[section]?.view !== view { scrollViews[section] = ScrollReference(view) }
+    }
+
+    func scrollToTop(_ section: EditorSection) {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        guard let scroll = scrollViews[section]?.view, scroll.window != nil else {
+            requests.send(section)
+            return
+        }
+        Self.stopMotion(in: scroll)
+        let top = CGPoint(x: scroll.contentOffset.x, y: -scroll.adjustedContentInset.top)
+        scroll.setContentOffset(top, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
+
+    static func stopMotion(in view: UIView) {
+        if let preview = view as? JSONPreviewContainer { preview.stopSmoothScrolling() }
+        if let scroll = view as? UIScrollView {
+            let pan = scroll.panGestureRecognizer
+            if pan.state == .began || pan.state == .changed {
+                pan.isEnabled = false
+                pan.isEnabled = true
+            }
+            scroll.setContentOffset(scroll.contentOffset, animated: false)
+        }
+        for child in view.subviews { stopMotion(in: child) }
+    }
+}
+
+private struct EditorScrollAnchor: ViewModifier {
+    @EnvironmentObject private var navigation: EditorScrollNavigation
+    let section: EditorSection
+    func body(content: Content) -> some View {
+        content.background(ReorderScrollLocator { navigation.register($0, for: section) })
+    }
 }
 
 private struct EditorScrollToTop: ViewModifier {
@@ -426,6 +486,10 @@ private struct EditorScrollToTop: ViewModifier {
 }
 
 extension View {
+    func registerScrollToTop(_ section: EditorSection) -> some View {
+        modifier(EditorScrollAnchor(section: section))
+    }
+
     func scrollToTopOnReselection(_ section: EditorSection, proxy: ScrollViewProxy, anchor: String) -> some View {
         modifier(EditorScrollToTop(section: section, proxy: proxy, anchor: anchor))
     }
@@ -493,6 +557,9 @@ private struct TabReselectionScrollToTop: UIViewControllerRepresentable {
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             guard let controller, controller.tabBar.bounds.contains(touch.location(in: controller.tabBar)) else { return false }
             selectionAtTouchDown = controller.selectedViewController
+            if let content = controller.selectedViewController?.view {
+                EditorScrollNavigation.stopMotion(in: content)
+            }
             return true
         }
 
@@ -615,6 +682,7 @@ struct SourceEditor: View {
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
             .background(ReorderScrollLocator { autoScroller.attach($0) })
+            .registerScrollToTop(.source)
         }
         .scrollToTopOnReselection(.source, proxy: scrollProxy, anchor: "sourceTop")
         .overlay(alignment: .topLeading) {

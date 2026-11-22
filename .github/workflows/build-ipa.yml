@@ -64,3 +64,6 @@ jobs:
             echo "Download the IPA from this Release link, then import it into Feather for signing."
             echo "SHA-256: \`${expected_digest#sha256:}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add Korean commit changes to summary
+        run: python3 scripts/write-build-summary.py

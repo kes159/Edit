@@ -520,6 +520,7 @@ struct AppsScreen: View {
             .padding(.bottom, 28)
             .frame(maxWidth: .infinity)
             .background(ReorderScrollLocator { autoScroller.attach($0) })
+            .registerScrollToTop(.apps)
         }
         .scrollToTopOnReselection(.apps, proxy: scrollProxy, anchor: "appsTop")
         .overlay(alignment: .topLeading) {
