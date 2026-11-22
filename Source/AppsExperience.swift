@@ -799,7 +799,7 @@ struct AppEditor: View {
                                  isUploadingImportedPreview: iconUploadID != nil,
                                  importedUploadError: iconUploadError)
                 AppInputField(title: "앱 이름", text: $app.name)
-                AppInputField(title: "번들 ID", text: $app.bundleIdentifier, identifier: true)
+                AppInputField(title: "번들 ID(BundleIdentifier)", text: $app.bundleIdentifier, identifier: true)
                 SourceTextField(title: "틴트 컬러", text: $app.tintColor) {
                     ColorPicker("틴트 컬러", selection: Binding(
                         get: { sourceTintColor(app.tintColor) },
@@ -1139,7 +1139,7 @@ struct AppEditor: View {
 
     private func toggleFeatured() {
         let id = app.bundleIdentifier
-        guard !id.isEmpty else { store.message = "Bundle ID를 먼저 입력하세요."; return }
+        guard !id.isEmpty else { store.message = "번들 ID(BundleIdentifier)를 먼저 입력하세요."; return }
         if let index = store.source.featuredApps.firstIndex(of: id) {
             store.source.featuredApps.remove(at: index)
         } else if store.source.featuredApps.count < 5 {
