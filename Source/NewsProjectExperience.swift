@@ -138,6 +138,12 @@ private struct NewsCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
             .background(tint)
+            if !news.imageURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Color.clear
+                    .aspectRatio(5.0 / 3.0, contentMode: .fit)
+                    .overlay { RemoteImage(url: news.imageURL, systemName: "photo") }
+                    .clipped()
+            }
             if let app {
                 HStack(spacing: 12) {
                     RemoteImage(url: app.iconURL, systemName: "app.fill", localData: app.iconPreviewData)
@@ -287,7 +293,7 @@ private struct NewsPosterField: View {
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
-                .frame(maxWidth: .infinity).frame(height: 130)
+                .frame(width: 180, height: 108)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
             }

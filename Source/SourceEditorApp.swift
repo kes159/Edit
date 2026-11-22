@@ -744,7 +744,8 @@ struct SourceImageField: View {
                             }
                     }
                 }
-                .frame(width: isHeader ? 96 : 70, height: isHeader ? 76 : 70)
+                .frame(width: frameProfile == .header ? 120 : (isHeader ? 96 : 70),
+                       height: frameProfile == .header ? 72 : (isHeader ? 76 : 70))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay {
                     if uploading {
