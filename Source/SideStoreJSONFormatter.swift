@@ -32,7 +32,7 @@ enum SideStoreJSONFormatter {
         return try orderedJSONData(result)
     }
 
-    /// JSON object order is cosmetic; keep app identity first and permissions last.
+    /// Keep source metadata above apps/news, and each app's permissions last.
     private static func orderedJSONData(_ value: Any) throws -> Data {
         func scalar(_ value: Any) throws -> String {
             let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
@@ -44,7 +44,14 @@ enum SideStoreJSONFormatter {
             if let object = value as? [String: Any] {
                 guard !object.isEmpty else { return "{}" }
                 var keys = object.keys.sorted()
-                if path == ["apps", "[]"] {
+                if path.isEmpty {
+                    let first = ["name", "identifier", "subtitle", "description", "iconURL", "headerURL",
+                                 "website", "tintColor", "fediUsername", "featuredApps"]
+                    let last = ["apps", "news"]
+                    keys = first.filter { object[$0] != nil }
+                        + keys.filter { !first.contains($0) && !last.contains($0) }
+                        + last.filter { object[$0] != nil }
+                } else if path == ["apps", "[]"] {
                     let first = ["name", "bundleIdentifier", "developerName", "subtitle", "localizedDescription",
                                  "iconURL", "tintColor", "category", "screenshots", "versions"]
                     keys = first.filter { object[$0] != nil }
