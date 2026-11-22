@@ -3,10 +3,18 @@ name: Build Source Editor IPA
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - README.md
+      - USER_GUIDE.md
+      - AGENTS.md
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ipa-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -16,13 +24,57 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Show Xcode version
+        id: toolchain
         run: |
           set -euo pipefail
           mkdir -p build
           xcodebuild -version | tee build/xcode-version.txt
+          cp build/xcode-version.txt build/cache-toolchain.txt
+          xcrun --sdk iphoneos --show-sdk-path >> build/cache-toolchain.txt
+          sw_vers -buildVersion >> build/cache-toolchain.txt
+          fingerprint="$(shasum -a 256 build/cache-toolchain.txt | cut -d ' ' -f 1)"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Xcode and Swift package cache
+        id: xcode-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            build/DerivedData/Build
+            build/DerivedData/ModuleCache.noindex
+            build/DerivedData/SDKStatCaches.noindex
+            build/DerivedData/source-input-mtimes.json
+            build/SourcePackages
+          key: xcode-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ github.ref }}-${{ hashFiles('Source.xcodeproj/**', 'scripts/build-ipa.sh', 'scripts/build_cache.py') }}-${{ hashFiles('Source/**') }}
+          restore-keys: |
+            xcode-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ github.ref }}-${{ hashFiles('Source.xcodeproj/**', 'scripts/build-ipa.sh', 'scripts/build_cache.py') }}-
+
+      - name: Restore timestamps of unchanged build inputs
+        run: python3 scripts/build_cache.py restore
 
       - name: Build IPA
-        run: ./scripts/build-ipa.sh
+        id: build-ipa
+        run: |
+          set -euo pipefail
+          build_started=$SECONDS
+          ./scripts/build-ipa.sh
+          echo "seconds=$((SECONDS - build_started))" >> "$GITHUB_OUTPUT"
+
+      - name: Record build input timestamps
+        if: steps.xcode-cache.outputs.cache-hit != 'true'
+        run: python3 scripts/build_cache.py save
+
+      - name: Save Xcode and Swift package cache
+        if: steps.xcode-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/DerivedData/Build
+            build/DerivedData/ModuleCache.noindex
+            build/DerivedData/SDKStatCaches.noindex
+            build/DerivedData/source-input-mtimes.json
+            build/SourcePackages
+          key: ${{ steps.xcode-cache.outputs.cache-primary-key }}
 
       - name: Prepare IPA artifact
         run: ./scripts/prepare-artifact.sh
@@ -79,4 +131,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add Korean commit changes to summary
-        run: python3 scripts/write-build-summary.py
+        env:
+          SOURCE_BUILD_SECONDS: ${{ steps.build-ipa.outputs.seconds }}
+          SOURCE_CACHE_HIT: ${{ steps.xcode-cache.outputs.cache-hit }}
+          SOURCE_CACHE_MATCHED_KEY: ${{ steps.xcode-cache.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-build-summary.py
+          {
+            echo
+            echo "### 빌드 시간과 캐시"
+            echo "- 컴파일·IPA 패키징: ${SOURCE_BUILD_SECONDS}초 (캐시 복원·저장 및 업로드 시간 제외)"
+            if [[ "$SOURCE_CACHE_HIT" == 'true' ]]; then
+              echo "- 캐시: 동일한 소스의 빌드 결과 재사용"
+            elif [[ -n "$SOURCE_CACHE_MATCHED_KEY" ]]; then
+              echo "- 캐시: 이전 소스의 빌드 결과를 복원해 변경분 빌드"
+            else
+              echo "- 캐시: 없음 — 다음 실행을 위한 캐시 생성"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

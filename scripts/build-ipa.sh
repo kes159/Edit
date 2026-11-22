@@ -14,7 +14,13 @@ xcodebuild \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -derivedDataPath "${derived_dir}" \
+  -clonedSourcePackagesDirPath "${build_dir}/SourcePackages" \
+  -skipPackageUpdates \
+  -parallelizeTargets \
+  -showBuildTimingSummary \
   CODE_SIGNING_ALLOWED=NO \
+  COMPILER_INDEX_STORE_ENABLE=NO \
+  DEBUG_INFORMATION_FORMAT=dwarf \
   build
 
 rm -rf "${package_dir}"
