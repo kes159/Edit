@@ -1437,13 +1437,16 @@ private struct SelectableJSONTextView: UIViewRepresentable {
             let y = min(maximum, max(0, rect.minY + view.textContainerInset.top - 8))
             view.setContentOffset(CGPoint(x: 0, y: y), animated: false)
             let fullRange = NSRange(location: 0, length: view.text.utf16.count)
-            view.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
-            view.layoutManager.addTemporaryAttribute(.backgroundColor,
-                value: UIColor.systemBlue.withAlphaComponent(0.3), forCharacterRange: range)
+            // UIKit supports attributed text storage; temporary layout attributes are AppKit-only.
+            view.textStorage.beginEditing()
+            view.textStorage.removeAttribute(.backgroundColor, range: fullRange)
+            view.textStorage.addAttribute(.backgroundColor,
+                value: UIColor.systemBlue.withAlphaComponent(0.3), range: range)
+            view.textStorage.endEditing()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak view] in
                 guard self?.focusedID == request.id, let view else { return }
-                view.layoutManager.removeTemporaryAttribute(.backgroundColor,
-                    forCharacterRange: NSRange(location: 0, length: view.text.utf16.count))
+                view.textStorage.removeAttribute(.backgroundColor,
+                    range: NSRange(location: 0, length: view.text.utf16.count))
             }
         }
 
