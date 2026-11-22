@@ -1,4 +1,6 @@
 import SwiftUI
+import Combine
+import QuartzCore
 import PhotosUI
 import UniformTypeIdentifiers
 
@@ -29,6 +31,7 @@ struct RootView: View {
     @State private var selectedTab: EditorSection = .source
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
     @State private var previewRequest: JSONPreviewRequest?
+    @StateObject private var scrollNavigation = EditorScrollNavigation()
 
     var body: some View {
         Group {
@@ -53,6 +56,7 @@ struct RootView: View {
                 compactLayout
             }
         }
+        .environmentObject(scrollNavigation)
         .confirmationDialog("JSON 불러오기", isPresented: $showingImportOptions, titleVisibility: .visible) {
             Button("파일 앱에서 불러오기") { importDestination = .file }
             Button("공개 저장소에서 불러오기") { importDestination = .publicRepository }
@@ -108,6 +112,12 @@ struct RootView: View {
                 store.finishReorder()
             }
         }
+        .onChange(of: selectedTab) { _, section in
+            if selectedSection != section { selectedSection = section }
+        }
+        .onChange(of: selectedSection) { _, section in
+            if let section, selectedTab != section { selectedTab = section }
+        }
     }
 
     private var compactLayout: some View {
@@ -130,14 +140,23 @@ struct RootView: View {
                 .tabItem { Label("파일", systemImage: "folder") }
                 .tag(EditorSection.file)
         }
-        .background(TabReselectionScrollToTop().frame(width: 0, height: 0))
+        .background(TabReselectionScrollToTop { scrollNavigation.scrollToTop(selectedTab) }.frame(width: 0, height: 0))
     }
 
     private var iPadLayout: some View {
         NavigationSplitView(columnVisibility: $splitVisibility) {
-            List(EditorSection.allCases, selection: $selectedSection) { section in
-                Label(section.title, systemImage: section.icon)
-                    .tag(section)
+            List(EditorSection.allCases) { section in
+                Button {
+                    if selectedSection == section { scrollNavigation.scrollToTop(section) }
+                    else { selectedSection = section }
+                } label: {
+                    Label(section.title, systemImage: section.icon)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(selectedSection == section ? Color.accentColor.opacity(0.15) : Color.clear)
+                .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
             }
             .navigationTitle("Source Editor")
             .listStyle(.sidebar)
@@ -385,20 +404,46 @@ struct WelcomeScreen: View {
     }
 }
 
-/// SwiftUI's selection binding does not report taps on the already selected tab.
-/// Observe the native delegate while forwarding SwiftUI's existing delegate calls.
+final class EditorScrollNavigation: ObservableObject {
+    // An event stream prevents a previous request from replaying after rotation.
+    let requests = PassthroughSubject<EditorSection, Never>()
+    func scrollToTop(_ section: EditorSection) { requests.send(section) }
+}
+
+private struct EditorScrollToTop: ViewModifier {
+    @EnvironmentObject private var navigation: EditorScrollNavigation
+    let section: EditorSection
+    let proxy: ScrollViewProxy
+    let anchor: String
+
+    func body(content: Content) -> some View {
+        content.onReceive(navigation.requests) { requestedSection in
+            guard requestedSection == section else { return }
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            withAnimation { proxy.scrollTo(anchor, anchor: .top) }
+        }
+    }
+}
+
+extension View {
+    func scrollToTopOnReselection(_ section: EditorSection, proxy: ScrollViewProxy, anchor: String) -> some View {
+        modifier(EditorScrollToTop(section: section, proxy: proxy, anchor: anchor))
+    }
+}
+
+/// Observe actual tab-bar touches without replacing SwiftUI's native delegate.
 private struct TabReselectionScrollToTop: UIViewControllerRepresentable {
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    let onReselect: () -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(onReselect: onReselect) }
 
     func makeUIViewController(context: Context) -> ProbeController {
         let controller = ProbeController()
-        controller.onResolve = { [weak coordinator = context.coordinator] probe in
-            coordinator?.attach(from: probe)
-        }
+        controller.onResolve = { [weak coordinator = context.coordinator] probe in coordinator?.attach(from: probe) }
         return controller
     }
 
     func updateUIViewController(_ controller: ProbeController, context: Context) {
+        context.coordinator.onReselect = onReselect
         DispatchQueue.main.async { [weak controller] in controller?.resolve() }
     }
 
@@ -409,71 +454,57 @@ private struct TabReselectionScrollToTop: UIViewControllerRepresentable {
 
     final class ProbeController: UIViewController {
         var onResolve: ((UIViewController) -> Void)?
-
-        override func loadView() {
-            view = UIView()
-            view.isUserInteractionEnabled = false
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            resolve()
-        }
-
-        override func viewDidLayoutSubviews() {
-            super.viewDidLayoutSubviews()
-            resolve()
-        }
-
+        override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
+        override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); resolve() }
+        override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); resolve() }
         func resolve() { onResolve?(self) }
     }
 
-    final class Coordinator: NSObject, UITabBarControllerDelegate {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onReselect: () -> Void
         private weak var controller: UITabBarController?
-        private weak var forwardedDelegate: UITabBarControllerDelegate?
+        private weak var selectionAtTouchDown: UIViewController?
+        private var tap: UITapGestureRecognizer?
+
+        init(onReselect: @escaping () -> Void) { self.onReselect = onReselect; super.init() }
 
         func attach(from probe: UIViewController) {
             guard let root = probe.view.window?.rootViewController,
-                  let tabController = findTabController(in: root) else { return }
-            if controller !== tabController { detach(); controller = tabController }
-            if tabController.delegate !== self {
-                forwardedDelegate = tabController.delegate
-                tabController.delegate = self
-            }
+                  let tabs = findTabController(in: root) else { return }
+            guard controller !== tabs || tap?.view !== tabs.tabBar else { return }
+            detach()
+            controller = tabs
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+            gesture.delaysTouchesEnded = false
+            gesture.delegate = self
+            tabs.tabBar.addGestureRecognizer(gesture)
+            tap = gesture
         }
 
         func detach() {
-            if let controller, controller.delegate === self { controller.delegate = forwardedDelegate }
+            if let tap { tap.view?.removeGestureRecognizer(tap) }
+            tap = nil
             controller = nil
-            forwardedDelegate = nil
+            selectionAtTouchDown = nil
         }
 
-        override func responds(to selector: Selector!) -> Bool {
-            super.responds(to: selector) || (forwardedDelegate?.responds(to: selector) ?? false)
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let controller, controller.tabBar.bounds.contains(touch.location(in: controller.tabBar)) else { return false }
+            selectionAtTouchDown = controller.selectedViewController
+            return true
         }
 
-        override func forwardingTarget(for selector: Selector!) -> Any? {
-            if let forwardedDelegate, forwardedDelegate.responds(to: selector) { return forwardedDelegate }
-            return super.forwardingTarget(for: selector)
-        }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
-        func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
-            let allowed = forwardedDelegate?.tabBarController?(tabBarController, shouldSelect: viewController) ?? true
-            if allowed, tabBarController.selectedViewController === viewController {
-                DispatchQueue.main.async { [weak self, weak tabBarController, weak viewController] in
-                    guard let self, let tabBarController, let viewController,
-                          self.controller === tabBarController,
-                          tabBarController.selectedViewController === viewController else { return }
-                    // Use the outer visible scroll view so the File tab returns to its header,
-                    // rather than scrolling only the nested JSON text view.
-                    if let scroll = self.outerScrollView(in: viewController.view) {
-                        viewController.view.endEditing(true)
-                        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x,
-                                                        y: -scroll.adjustedContentInset.top), animated: true)
-                    }
-                }
+        @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let previous = selectionAtTouchDown else { return }
+            DispatchQueue.main.async { [weak self, weak previous] in
+                guard let self, let previous, self.controller?.selectedViewController === previous else { return }
+                self.onReselect()
             }
-            return allowed
         }
 
         private func findTabController(in root: UIViewController) -> UITabBarController? {
@@ -483,23 +514,10 @@ private struct TabReselectionScrollToTop: UIViewControllerRepresentable {
             }
             return nil
         }
-
-        private func outerScrollView(in view: UIView) -> UIScrollView? {
-            guard !view.isHidden, view.alpha > 0, let window = view.window,
-                  view.convert(view.bounds, to: window).intersects(window.bounds) else { return nil }
-            if let scroll = view as? UIScrollView, scroll.isScrollEnabled,
-               scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom > scroll.bounds.height + 1 {
-                return scroll
-            }
-            for child in view.subviews {
-                if let scroll = outerScrollView(in: child) { return scroll }
-            }
-            return nil
-        }
     }
 }
 
-private enum EditorSection: String, CaseIterable, Identifiable {
+enum EditorSection: String, CaseIterable, Identifiable {
     case source, apps, news, file
     var id: Self { self }
     var title: String {
@@ -546,6 +564,7 @@ struct SourceEditor: View {
     }
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 HStack {
@@ -589,6 +608,7 @@ struct SourceEditor: View {
                 }
                 .padding(.top, 4)
             }
+            .id("sourceTop")
             .frame(maxWidth: 760)
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -596,6 +616,7 @@ struct SourceEditor: View {
             .frame(maxWidth: .infinity)
             .background(ReorderScrollLocator { autoScroller.attach($0) })
         }
+        .scrollToTopOnReselection(.source, proxy: scrollProxy, anchor: "sourceTop")
         .overlay(alignment: .topLeading) {
         if let handleDragID,
            let app = store.source.apps.first(where: { $0.bundleIdentifier == handleDragID }),
@@ -637,6 +658,7 @@ struct SourceEditor: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .keyboardDismissButton()
+        }
     }
 
     private var featuredAppsPanel: some View {
@@ -1526,7 +1548,7 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         view.backgroundColor = .black
         view.showsVerticalScrollIndicator = false
         view.tintColor = .systemBlue
-        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 44)
+        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 52)
         view.textContainer.lineFragmentPadding = 0
         view.accessibilityLabel = "JSON 미리보기 내용"
         view.attributedText = JSONPreviewSyntax.attributedText(text)
@@ -1615,7 +1637,7 @@ private final class JSONPreviewContainer: UIView {
             scrollbar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             scrollbar.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             scrollbar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            scrollbar.widthAnchor.constraint(equalToConstant: 32)
+            scrollbar.widthAnchor.constraint(equalToConstant: 40)
         ])
         scrollbar.onScroll = { [weak self] progress in
             guard let self else { return }
@@ -1649,6 +1671,9 @@ private final class JSONPreviewScrollbar: UIControl {
     var onScroll: ((CGFloat) -> Void)?
     private let track = UIView()
     private let thumb = UIView()
+    private let thumbGradient = CAGradientLayer()
+    private let grip = UILabel()
+    private let barWidth: CGFloat = 16
     private var progress: CGFloat = 0
     private var visibleFraction: CGFloat = 1
     private var grabOffset: CGFloat = 0
@@ -1659,9 +1684,32 @@ private final class JSONPreviewScrollbar: UIControl {
         thumb.backgroundColor = UIColor.white.withAlphaComponent(0.85)
         for view in [track, thumb] {
             view.isUserInteractionEnabled = false
-            view.layer.cornerRadius = 4
+            view.layer.cornerRadius = 8
             addSubview(view)
         }
+        track.layer.borderWidth = 1
+        track.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
+        thumbGradient.colors = [UIColor(white: 0.98, alpha: 1).cgColor,
+                                UIColor(white: 0.62, alpha: 1).cgColor,
+                                UIColor(white: 0.84, alpha: 1).cgColor]
+        thumbGradient.startPoint = CGPoint(x: 0, y: 0)
+        thumbGradient.endPoint = CGPoint(x: 1, y: 1)
+        thumbGradient.cornerRadius = 7
+        thumb.layer.insertSublayer(thumbGradient, at: 0)
+        thumb.layer.borderWidth = 1
+        thumb.layer.borderColor = UIColor.white.withAlphaComponent(0.65).cgColor
+        thumb.layer.shadowColor = UIColor.black.cgColor
+        thumb.layer.shadowOpacity = 0.75
+        thumb.layer.shadowRadius = 2
+        thumb.layer.shadowOffset = CGSize(width: 1, height: 2)
+        grip.text = "="
+        grip.font = .monospacedSystemFont(ofSize: 16, weight: .bold)
+        grip.textAlignment = .center
+        grip.textColor = UIColor(white: 0.22, alpha: 1)
+        grip.shadowColor = UIColor.white.withAlphaComponent(0.8)
+        grip.shadowOffset = CGSize(width: 0, height: 1)
+        grip.isUserInteractionEnabled = false
+        thumb.addSubview(grip)
         isAccessibilityElement = true
         accessibilityLabel = "JSON 미리보기 스크롤"
         accessibilityTraits = [.adjustable]
@@ -1681,9 +1729,15 @@ private final class JSONPreviewScrollbar: UIControl {
         super.layoutSubviews()
         let height = max(0, bounds.height)
         let thumbHeight = min(height, max(44, height * visibleFraction))
-        let x = (bounds.width - 8) / 2
-        track.frame = CGRect(x: x, y: 0, width: 8, height: height)
-        thumb.frame = CGRect(x: x, y: (height - thumbHeight) * progress, width: 8, height: thumbHeight)
+        let x = (bounds.width - barWidth) / 2
+        track.frame = CGRect(x: x, y: 0, width: barWidth, height: height)
+        thumb.frame = CGRect(x: x, y: (height - thumbHeight) * progress, width: barWidth, height: thumbHeight)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        thumbGradient.frame = thumb.bounds.insetBy(dx: 1, dy: 1)
+        thumb.layer.shadowPath = UIBezierPath(roundedRect: thumb.bounds, cornerRadius: 8).cgPath
+        CATransaction.commit()
+        grip.frame = thumb.bounds
     }
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {

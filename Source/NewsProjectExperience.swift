@@ -85,6 +85,7 @@ struct NewsScreen: View {
             .frame(maxWidth: 780)
             .frame(maxWidth: .infinity)
         }
+        .scrollToTopOnReselection(.news, proxy: scrollProxy, anchor: "newsTop")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showingNewEditor) {
             if let newEditorIndex { editor(at: newEditorIndex) }
@@ -509,6 +510,7 @@ struct FileScreen: View {
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 17)
                     .background(LinearGradient(colors: [Color.mint.opacity(0.1), Color.mint.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
+                    .id("fileTop")
                     actionGroup("Actions", rows: [
                         ("folder.badge.plus", "소스 새로 만들기", newAction),
                         ("folder", "JSON 불러오기", importAction),
@@ -522,6 +524,7 @@ struct FileScreen: View {
                 .frame(maxWidth: 780).frame(maxWidth: .infinity)
                 .padding(.bottom, 30)
             }
+            .scrollToTopOnReselection(.file, proxy: proxy, anchor: "fileTop")
             .onAppear {
                 if previewRequest != nil { proxy.scrollTo("jsonPreview", anchor: .top) }
             }
