@@ -84,6 +84,7 @@ struct NewsScreen: View {
             .padding(.bottom, 24)
             .frame(maxWidth: 780)
             .frame(maxWidth: .infinity)
+            .registerScrollToTop(.news)
         }
         .scrollToTopOnReselection(.news, proxy: scrollProxy, anchor: "newsTop")
         .navigationBarTitleDisplayMode(.inline)
@@ -523,6 +524,7 @@ struct FileScreen: View {
                 }
                 .frame(maxWidth: 780).frame(maxWidth: .infinity)
                 .padding(.bottom, 30)
+                .registerScrollToTop(.file)
             }
             .scrollToTopOnReselection(.file, proxy: proxy, anchor: "fileTop")
             .onAppear {
