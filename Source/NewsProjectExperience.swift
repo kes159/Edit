@@ -262,6 +262,7 @@ private struct NewsEditor: View {
             Button("예", role: .destructive) { dismiss(); deleteAction() }
             Button("아니오", role: .cancel) {}
         }
+        .editingScreen(.news)
         .keyboardDismissButton()
     }
 }

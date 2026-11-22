@@ -43,6 +43,8 @@ final class SourceStore: ObservableObject {
         hasUnsavedReorder = true
     }
 
+    func persistCurrentDraft() { save() }
+
     func finishReorder() {
         if hasUnsavedReorder { save() }
     }
