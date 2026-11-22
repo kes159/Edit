@@ -1,4 +1,3 @@
-import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -7,9 +6,8 @@ import unittest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "write-build-summary.py"
-spec = importlib.util.spec_from_file_location("build_summary", SCRIPT)
-summary = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(summary)
+sys.path.insert(0, str(SCRIPT.parent))
+import build_notes as summary
 
 
 class BuildSummaryTests(unittest.TestCase):
