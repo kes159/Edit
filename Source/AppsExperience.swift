@@ -332,7 +332,57 @@ struct EditorListActionIcon: View {
     }
 }
 
+private struct AppCodePicker: View {
+    @EnvironmentObject private var store: SourceStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
+    let onSelect: (UUID) -> Void
+
+    private var apps: [SourceApp] {
+        store.source.apps.filter { app in
+            search.isEmpty || app.name.localizedCaseInsensitiveContains(search)
+                || app.bundleIdentifier.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(apps, id: \.editorID) { app in
+                    Button {
+                        onSelect(app.editorID)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            RemoteImage(url: app.iconURL, systemName: "app.fill", localData: app.iconPreviewData)
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(app.name.isEmpty ? "이름 없는 앱" : app.name).foregroundStyle(.primary)
+                                Text(app.bundleIdentifier.isEmpty ? "Bundle ID 미입력" : app.bundleIdentifier)
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if apps.isEmpty { ContentUnavailableView.search(text: search) }
+            }
+            .searchable(text: $search, prompt: "앱 이름 또는 Bundle ID")
+            .navigationTitle("소스코드를 볼 앱 선택")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("취소") { dismiss() } }
+            }
+        }
+    }
+}
+
 struct AppsScreen: View {
+    let viewCodeAction: (Int) -> Void
+    @State private var choosingCodeApp = false
+    @State private var codeAppID: UUID?
     @EnvironmentObject private var store: SourceStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
@@ -368,7 +418,19 @@ struct AppsScreen: View {
         ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("앱").font(.system(size: 34, weight: .bold)).padding(.top, 14).id("appsTop")
+                HStack {
+                    Text("앱").font(.system(size: 34, weight: .bold))
+                    Spacer()
+                    Button {
+                        codeAppID = nil
+                        choosingCodeApp = true
+                    } label: {
+                        Label("소스코드 보기", systemImage: "chevron.left.forwardslash.chevron.right")
+                            .font(.subheadline)
+                    }
+                    .disabled(store.source.apps.isEmpty || draggedAppID != nil)
+                }
+                .padding(.top, 14).id("appsTop")
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("검색", text: $search)
@@ -515,6 +577,14 @@ struct AppsScreen: View {
                 appToDeleteID = nil
             }
             Button("아니오", role: .cancel) { appToDeleteID = nil }
+        }
+        .sheet(isPresented: $choosingCodeApp, onDismiss: {
+            guard let codeAppID,
+                  let index = store.source.apps.firstIndex(where: { $0.editorID == codeAppID }) else { return }
+            self.codeAppID = nil
+            viewCodeAction(index)
+        }) {
+            AppCodePicker { codeAppID = $0 }
         }
         .keyboardDismissButton()
         }
