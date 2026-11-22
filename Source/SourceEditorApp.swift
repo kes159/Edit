@@ -110,7 +110,7 @@ struct RootView: View {
     private var compactLayout: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                SourceEditor(viewCodeAction: { selectedTab = .json }, addAppAction: {
+                SourceEditor(viewCodeAction: { selectedTab = .file }, addAppAction: {
                     store.source.apps.append(SourceApp())
                     selectedTab = .apps
                 })
@@ -120,15 +120,12 @@ struct RootView: View {
             NavigationStack { AppsScreen() }
                 .tabItem { Label("앱", systemImage: "apps.iphone") }
                 .tag(EditorSection.apps)
-            NavigationStack { NewsScreen(viewCodeAction: { selectedTab = .json }) }
+            NavigationStack { NewsScreen(viewCodeAction: { selectedTab = .file }) }
                 .tabItem { Label("뉴스", systemImage: "newspaper") }
                 .tag(EditorSection.news)
-            NavigationStack { projectScreen }
-                .tabItem { Label("Project", systemImage: "hammer.fill") }
-                .tag(EditorSection.project)
-            NavigationStack { jsonScreen }
-                .tabItem { Label("JSON", systemImage: "curlybraces") }
-                .tag(EditorSection.json)
+            NavigationStack { fileScreen }
+                .tabItem { Label("파일", systemImage: "folder") }
+                .tag(EditorSection.file)
         }
     }
 
@@ -150,33 +147,27 @@ struct RootView: View {
         } detail: {
             NavigationStack {
                 switch selectedSection ?? .source {
-                case .source: SourceEditor(viewCodeAction: { selectedSection = .json }, addAppAction: {
+                case .source: SourceEditor(viewCodeAction: { selectedSection = .file }, addAppAction: {
                     store.source.apps.append(SourceApp())
                     selectedSection = .apps
                 })
                 case .apps: AppsScreen()
-                case .news: NewsScreen(viewCodeAction: { selectedSection = .json })
-                case .project: projectScreen
-                case .json: jsonScreen
+                case .news: NewsScreen(viewCodeAction: { selectedSection = .file })
+                case .file: fileScreen
                 }
             }
         }
         .navigationSplitViewStyle(.balanced)
     }
 
-    private var jsonScreen: some View {
-        JSONScreen(importAction: { showingImportOptions = true }, exportAction: beginExport)
-    }
-
-    private var projectScreen: some View {
-        ProjectScreen(
+    private var fileScreen: some View {
+        FileScreen(
             newAction: {
                 if store.hasSavedDraft { confirmingNewProject = true }
                 else { store.newProject(); selectedTab = .source; selectedSection = .source }
             },
             importAction: { showingImportOptions = true },
-            exportAction: beginExport,
-            viewCodeAction: { selectedTab = .json; selectedSection = .json }
+            exportAction: beginExport
         )
     }
 
@@ -377,15 +368,14 @@ struct WelcomeScreen: View {
 }
 
 private enum EditorSection: String, CaseIterable, Identifiable {
-    case source, apps, news, project, json
+    case source, apps, news, file
     var id: Self { self }
     var title: String {
         switch self {
         case .source: "소스 설정"
         case .apps: "앱"
         case .news: "뉴스"
-        case .project: "Project"
-        case .json: "JSON 미리보기"
+        case .file: "파일"
         }
     }
     var icon: String {
@@ -393,8 +383,7 @@ private enum EditorSection: String, CaseIterable, Identifiable {
         case .source: "square.stack.3d.up"
         case .apps: "apps.iphone"
         case .news: "newspaper"
-        case .project: "hammer.fill"
-        case .json: "curlybraces"
+        case .file: "folder"
         }
     }
 }
@@ -1248,68 +1237,27 @@ extension View {
     }
 }
 
-struct JSONScreen: View {
+struct JSONPreviewContent: View {
     @EnvironmentObject private var store: SourceStore
-    @State private var showingGitHubUpload = false
-    let importAction: () -> Void
-    let exportAction: () -> Void
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ViewThatFits(in: .horizontal) {
-                    actionButtons(uploadTitle: "GitHub에 업로드하기")
-                        .fixedSize(horizontal: true, vertical: false)
-                    actionButtons(uploadTitle: "GitHub 업로드")
-                        .fixedSize(horizontal: true, vertical: false)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) { importButton; exportButton }
-                        uploadButton(title: "GitHub에 업로드하기")
-                    }
-                    .font(.subheadline)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("JSON 미리보기").font(.title3.bold())
+            if store.issues.isEmpty {
+                Label("필수 항목 검사를 통과했습니다", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("확인할 항목 \(store.issues.count)개", systemImage: "exclamationmark.triangle.fill").font(.headline)
+                    ForEach(store.issues, id: \.self) { Text("• \($0)").font(.footnote) }
                 }
-                if store.issues.isEmpty {
-                    Label("필수 항목 검사를 통과했습니다", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("확인할 항목 \(store.issues.count)개", systemImage: "exclamationmark.triangle.fill").font(.headline)
-                        ForEach(store.issues, id: \.self) { Text("• \($0)").font(.footnote) }
-                    }
-                    .foregroundStyle(.orange)
-                }
-                SelectableJSONTextView(text: store.jsonText)
-                    .frame(height: UIDevice.current.userInterfaceIdiom == .pad ? 680 : 520)
-                    .background(.black, in: RoundedRectangle(cornerRadius: 12))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.orange)
             }
-            .padding()
+            SelectableJSONTextView(text: store.jsonText)
+                .frame(height: UIDevice.current.userInterfaceIdiom == .pad ? 680 : 520)
+                .background(.black, in: RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .navigationTitle("JSON 미리보기")
-        .sheet(isPresented: $showingGitHubUpload) { GitHubUploadSheet() }
-    }
-
-    private func actionButtons(uploadTitle: String) -> some View {
-        HStack(spacing: 6) {
-            importButton
-            exportButton
-            uploadButton(title: uploadTitle)
-        }
-        .font(.subheadline)
-    }
-
-    private var importButton: some View {
-        Button(action: importAction) { Label("JSON 불러오기", systemImage: "square.and.arrow.down") }
-            .buttonStyle(.bordered)
-    }
-
-    private var exportButton: some View {
-        Button(action: exportAction) { Label("JSON 저장", systemImage: "square.and.arrow.up") }
-            .buttonStyle(.borderedProminent)
-    }
-
-    private func uploadButton(title: String) -> some View {
-        Button { showingGitHubUpload = true } label: { Label(title, systemImage: "arrow.up.circle") }
-            .buttonStyle(.bordered).accessibilityLabel("GitHub에 업로드하기")
     }
 }
 

@@ -491,30 +491,30 @@ private func newsDisplayDate(_ value: String) -> String {
     return "\(parts[0])년 \(Int(parts[1]) ?? 0)월 \(Int(parts[2]) ?? 0)일"
 }
 
-struct ProjectScreen: View {
+struct FileScreen: View {
     @State private var showingGitHubUpload = false
     let newAction: () -> Void
     let importAction: () -> Void
     let exportAction: () -> Void
-    let viewCodeAction: () -> Void
     private let green = Color(red: 0.02, green: 0.71, blue: 0.57)
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 HStack(spacing: 10) {
-                    Image(systemName: "hammer.fill").font(.title2).foregroundStyle(.purple)
-                    Text("Project").font(.title2.bold())
+                    Image(systemName: "folder").font(.title2).foregroundStyle(.purple)
+                    Text("파일").font(.title2.bold())
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 17)
                 .background(LinearGradient(colors: [Color.mint.opacity(0.1), Color.mint.opacity(0.35)], startPoint: .leading, endPoint: .trailing))
-                projectGroup("Actions", rows: [
+                actionGroup("Actions", rows: [
                     ("folder.badge.plus", "소스 새로 만들기", newAction),
                     ("folder", "JSON 불러오기", importAction),
                     ("square.and.arrow.up", "JSON 내보내기", exportAction),
-                    ("arrow.up.circle", "GitHub에 업로드하기", { showingGitHubUpload = true }),
-                    ("chevron.left.forwardslash.chevron.right", "소스코드 보기", viewCodeAction)
+                    ("arrow.up.circle", "GitHub에 업로드하기", { showingGitHubUpload = true })
                 ])
+                JSONPreviewContent()
+                    .padding(.horizontal, 16)
             }
             .frame(maxWidth: 780).frame(maxWidth: .infinity)
             .padding(.bottom, 30)
@@ -523,7 +523,7 @@ struct ProjectScreen: View {
         .sheet(isPresented: $showingGitHubUpload) { GitHubUploadSheet() }
     }
 
-    private func projectGroup(_ title: String, rows: [(String, String, () -> Void)]) -> some View {
+    private func actionGroup(_ title: String, rows: [(String, String, () -> Void)]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).font(.title3.bold())
             VStack(spacing: 0) {
