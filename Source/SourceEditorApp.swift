@@ -147,12 +147,17 @@ struct RootView: View {
         if current != section {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             let wasEditing = scrollNavigation.isEditing(current)
+            let hasChanges = scrollNavigation.hasChanges(in: current)
             scrollNavigation.editorWillLeave.send(current)
             store.persistCurrentDraft()
             if wasEditing {
                 // Commit local editor drafts before removing their navigation destinations.
                 navigationIDs[current] = UUID()
-                showAutosaveNotice()
+            }
+            if hasChanges { showAutosaveNotice() }
+            else {
+                autosaveNoticeTask?.cancel()
+                showingAutosaveNotice = false
             }
         }
         selectedTab = section
@@ -472,10 +477,19 @@ extension EnvironmentValues {
 
 final class EditorScrollNavigation: ObservableObject {
     let editorWillLeave = PassthroughSubject<EditorSection, Never>()
-    private var editors: [UUID: EditorSection] = [:]
-    func registerEditor(_ id: UUID, section: EditorSection) { editors[id] = section }
+    private struct EditorRegistration {
+        let section: EditorSection
+        let hasChanges: () -> Bool
+    }
+    private var editors: [UUID: EditorRegistration] = [:]
+    func registerEditor(_ id: UUID, section: EditorSection, hasChanges: @escaping () -> Bool) {
+        editors[id] = EditorRegistration(section: section, hasChanges: hasChanges)
+    }
     func unregisterEditor(_ id: UUID) { editors.removeValue(forKey: id) }
-    func isEditing(_ section: EditorSection) -> Bool { editors.values.contains(section) }
+    func isEditing(_ section: EditorSection) -> Bool { editors.values.contains { $0.section == section } }
+    func hasChanges(in section: EditorSection) -> Bool {
+        editors.values.contains { $0.section == section && $0.hasChanges() }
+    }
 
     // An event stream prevents a previous request from replaying after rotation.
     let requests = PassthroughSubject<EditorSection, Never>()
@@ -514,12 +528,19 @@ final class EditorScrollNavigation: ObservableObject {
     }
 }
 
-private struct EditorScreenMarker: ViewModifier {
+private struct EditorScreenMarker<Value: Equatable>: ViewModifier {
     @EnvironmentObject private var navigation: EditorScrollNavigation
     @State private var id = UUID()
+    @State private var initialValue: Value?
     let section: EditorSection
+    let value: () -> Value
     func body(content: Content) -> some View {
-        content.onAppear { navigation.registerEditor(id, section: section) }
+        content.onAppear {
+            let baseline = initialValue ?? value()
+            initialValue = baseline
+            // Read bindings at tab-tap time, including local drafts not committed to the store yet.
+            navigation.registerEditor(id, section: section) { value() != baseline }
+        }
             .onDisappear { navigation.unregisterEditor(id) }
     }
 }
@@ -548,7 +569,9 @@ private struct EditorScrollToTop: ViewModifier {
 }
 
 extension View {
-    func editingScreen(_ section: EditorSection) -> some View { modifier(EditorScreenMarker(section: section)) }
+    func editingScreen<Value: Equatable>(_ section: EditorSection, value: @escaping () -> Value) -> some View {
+        modifier(EditorScreenMarker(section: section, value: value))
+    }
 
     func registerScrollToTop(_ section: EditorSection) -> some View {
         modifier(EditorScrollAnchor(section: section))
@@ -791,7 +814,12 @@ struct SourceEditor: View {
         }
         .toolbar(usesSidebarLayout ? .visible : .hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
-        .editingScreen(.source)
+        .editingScreen(.source) {
+            var settings = store.source
+            settings.apps = []
+            settings.news = []
+            return settings
+        }
         .keyboardDismissButton()
         }
     }
@@ -1398,7 +1426,7 @@ struct VersionEditor: View {
         }
         .safeAreaInset(edge: .bottom) {
             Button {
-                version = draft
+                version = versionToSave
                 dismiss()
             } label: {
                 Text("저장").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 11)
@@ -1421,10 +1449,9 @@ struct VersionEditor: View {
         .onChange(of: sizeUnit) { _, _ in sizeText = sizeDisplay(draft.size) }
         .onReceive(navigation.editorWillLeave) { section in
             guard section == .apps else { return }
-            if didLoadSize { updateSize() }
-            version = draft
+            version = versionToSave
         }
-        .editingScreen(.apps)
+        .editingScreen(.apps) { versionToSave }
         .keyboardDismissButton()
     }
 
@@ -1449,8 +1476,18 @@ struct VersionEditor: View {
     }
 
     private func updateSize() {
-        let value = (Double(sizeText.replacingOccurrences(of: ",", with: ".")) ?? 0) * sizeMultiplier
-        draft.size = value.isFinite && value >= 0 ? (Int(exactly: value.rounded()) ?? 0) : 0
+        draft.size = enteredSize
+    }
+
+    private var enteredSize: Int {
+        let bytes = (Double(sizeText.replacingOccurrences(of: ",", with: ".")) ?? 0) * sizeMultiplier
+        return bytes.isFinite && bytes >= 0 ? (Int(exactly: bytes.rounded()) ?? 0) : 0
+    }
+
+    private var versionToSave: SourceVersion {
+        var value = draft
+        if didLoadSize { value.size = enteredSize }
+        return value
     }
 }
 
@@ -1462,7 +1499,7 @@ struct ScreenshotsEditor: View {
             screenshotSection("iPad", items: $screenshots.ipad)
         }
         .navigationTitle("스크린샷")
-        .editingScreen(.apps)
+        .editingScreen(.apps) { screenshots }
         .keyboardDismissButton()
     }
     private func screenshotSection(_ title: String, items: Binding<[Screenshot]>) -> some View {
@@ -1514,7 +1551,7 @@ struct PermissionsEditor: View {
             }
         }
         .navigationTitle("권한")
-        .editingScreen(.apps)
+        .editingScreen(.apps) { permissions }
         .keyboardDismissButton()
     }
 }
