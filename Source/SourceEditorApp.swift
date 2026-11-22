@@ -1505,11 +1505,14 @@ private struct SelectableJSONTextView: UIViewRepresentable {
     let text: String
     let request: JSONPreviewRequest?
 
-    func makeUIView(context: Context) -> JSONPreviewTextView {
-        let view = JSONPreviewTextView()
+    func makeUIView(context: Context) -> JSONPreviewContainer {
+        let container = JSONPreviewContainer()
+        let view = container.textView
+        context.coordinator.container = container
         context.coordinator.request = request
         view.onLayout = { [weak coordinator = context.coordinator] view in
             coordinator?.focusIfNeeded(view)
+            coordinator?.container?.updateScrollbar()
         }
         view.delegate = context.coordinator
         let press = UILongPressGestureRecognizer(target: view, action: #selector(JSONPreviewTextView.showCopyMenu(_:)))
@@ -1521,16 +1524,18 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         view.isSelectable = true
         view.isScrollEnabled = true
         view.backgroundColor = .black
-        view.indicatorStyle = .white
+        view.showsVerticalScrollIndicator = false
         view.tintColor = .systemBlue
-        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 44)
         view.textContainer.lineFragmentPadding = 0
         view.accessibilityLabel = "JSON 미리보기 내용"
         view.attributedText = JSONPreviewSyntax.attributedText(text)
-        return view
+        return container
     }
 
-    func updateUIView(_ view: JSONPreviewTextView, context: Context) {
+    func updateUIView(_ container: JSONPreviewContainer, context: Context) {
+        let view = container.textView
+        context.coordinator.container = container
         context.coordinator.request = request
         if view.text != text {
             let selection = view.selectedRange
@@ -1546,8 +1551,11 @@ private struct SelectableJSONTextView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+        weak var container: JSONPreviewContainer?
         var request: JSONPreviewRequest?
         private var focusedID: UUID?
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { container?.updateScrollbar() }
 
         func focusIfNeeded(_ view: UITextView) {
             guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0,
@@ -1585,6 +1593,129 @@ private struct SelectableJSONTextView: UIViewRepresentable {
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
             (textView as? JSONPreviewTextView)?.selectionMenu ?? UIMenu(children: suggestedActions)
         }
+    }
+}
+
+/// The scrollbar is a sibling of the text view, so dragging it does not select code.
+private final class JSONPreviewContainer: UIView {
+    let textView = JSONPreviewTextView()
+    private let scrollbar = JSONPreviewScrollbar()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        scrollbar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textView)
+        addSubview(scrollbar)
+        NSLayoutConstraint.activate([
+            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollbar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            scrollbar.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            scrollbar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            scrollbar.widthAnchor.constraint(equalToConstant: 32)
+        ])
+        scrollbar.onScroll = { [weak self] progress in
+            guard let self else { return }
+            let minimum = -self.textView.adjustedContentInset.top
+            let maximum = max(minimum, self.textView.contentSize.height - self.textView.bounds.height
+                              + self.textView.adjustedContentInset.bottom)
+            self.textView.setContentOffset(CGPoint(x: self.textView.contentOffset.x,
+                                                   y: minimum + (maximum - minimum) * progress), animated: false)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateScrollbar()
+    }
+
+    func updateScrollbar() {
+        let viewport = max(0, textView.bounds.height)
+        let total = max(viewport, textView.contentSize.height + textView.adjustedContentInset.top
+                        + textView.adjustedContentInset.bottom)
+        let distance = total - viewport
+        let progress = distance > 0 ? (textView.contentOffset.y + textView.adjustedContentInset.top) / distance : 0
+        scrollbar.update(progress: progress, visibleFraction: total > 0 ? viewport / total : 1,
+                         canScroll: distance > 1)
+    }
+}
+
+private final class JSONPreviewScrollbar: UIControl {
+    var onScroll: ((CGFloat) -> Void)?
+    private let track = UIView()
+    private let thumb = UIView()
+    private var progress: CGFloat = 0
+    private var visibleFraction: CGFloat = 1
+    private var grabOffset: CGFloat = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        track.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        thumb.backgroundColor = UIColor.white.withAlphaComponent(0.85)
+        for view in [track, thumb] {
+            view.isUserInteractionEnabled = false
+            view.layer.cornerRadius = 4
+            addSubview(view)
+        }
+        isAccessibilityElement = true
+        accessibilityLabel = "JSON 미리보기 스크롤"
+        accessibilityTraits = [.adjustable]
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func update(progress: CGFloat, visibleFraction: CGFloat, canScroll: Bool) {
+        self.progress = min(1, max(0, progress))
+        self.visibleFraction = min(1, max(0, visibleFraction))
+        isEnabled = canScroll
+        accessibilityValue = "\(Int((self.progress * 100).rounded()))%"
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let height = max(0, bounds.height)
+        let thumbHeight = min(height, max(44, height * visibleFraction))
+        let x = (bounds.width - 8) / 2
+        track.frame = CGRect(x: x, y: 0, width: 8, height: height)
+        thumb.frame = CGRect(x: x, y: (height - thumbHeight) * progress, width: 8, height: thumbHeight)
+    }
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        guard isEnabled else { return false }
+        layoutIfNeeded()
+        let y = touch.location(in: self).y
+        grabOffset = (thumb.frame.minY...thumb.frame.maxY).contains(y) ? y - thumb.frame.minY : thumb.bounds.height / 2
+        moveThumb(to: y)
+        return true
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        moveThumb(to: touch.location(in: self).y)
+        return true
+    }
+
+    private func moveThumb(to y: CGFloat) {
+        let travel = bounds.height - thumb.bounds.height
+        guard travel > 0 else { return }
+        progress = min(1, max(0, (y - grabOffset) / travel))
+        setNeedsLayout()
+        onScroll?(progress)
+    }
+
+    override func accessibilityIncrement() { adjust(by: 0.1) }
+    override func accessibilityDecrement() { adjust(by: -0.1) }
+
+    private func adjust(by step: CGFloat) {
+        guard isEnabled else { return }
+        progress = min(1, max(0, progress + step))
+        setNeedsLayout()
+        onScroll?(progress)
     }
 }
 
