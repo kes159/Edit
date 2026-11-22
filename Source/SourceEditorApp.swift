@@ -29,7 +29,6 @@ struct RootView: View {
     @State private var confirmingNewProject = false
     @State private var selectedSection: EditorSection? = .source
     @State private var selectedTab: EditorSection = .source
-    @State private var navigationIDs = Dictionary(uniqueKeysWithValues: EditorSection.allCases.map { ($0, UUID()) })
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
     @State private var previewRequest: JSONPreviewRequest?
     @StateObject private var scrollNavigation = EditorScrollNavigation()
@@ -146,19 +145,23 @@ struct RootView: View {
             ? (selectedSection ?? .source) : selectedTab
         if current != section {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            let wasEditing = scrollNavigation.isEditing(current)
             let hasChanges = scrollNavigation.hasChanges(in: current)
             scrollNavigation.editorWillLeave.send(current)
             store.persistCurrentDraft()
-            if wasEditing {
-                // Commit local editor drafts before removing their navigation destinations.
-                navigationIDs[current] = UUID()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                // The path, rather than view identity or a local presentation flag, owns every editor.
+                scrollNavigation.resetPath(for: current)
+                selectedTab = section
+                selectedSection = section
             }
             if hasChanges { showAutosaveNotice() }
             else {
                 autosaveNoticeTask?.cancel()
                 showingAutosaveNotice = false
             }
+            return
         }
         selectedTab = section
         selectedSection = section
@@ -176,25 +179,21 @@ struct RootView: View {
 
     private var compactLayout: some View {
         TabView(selection: tabSelection) {
-            NavigationStack {
+            NavigationStack(path: scrollNavigation.pathBinding(for: .source)) {
                 SourceEditor(viewCodeAction: { showCode(.source) }, addAppAction: {
                     store.source.apps.append(SourceApp())
                     navigate(to: .apps)
                 })
             }
-                .id(navigationIDs[.source])
                 .tabItem { Label("소스", systemImage: "square.stack.3d.up") }
                 .tag(EditorSection.source)
-            NavigationStack { AppsScreen(viewCodeAction: showAppCode) }
-                .id(navigationIDs[.apps])
+            NavigationStack(path: scrollNavigation.pathBinding(for: .apps)) { AppsScreen(viewCodeAction: showAppCode) }
                 .tabItem { Label("앱", systemImage: "apps.iphone") }
                 .tag(EditorSection.apps)
-            NavigationStack { NewsScreen(viewCodeAction: { showCode(.news(index: $0)) }) }
-                .id(navigationIDs[.news])
+            NavigationStack(path: scrollNavigation.pathBinding(for: .news)) { NewsScreen(viewCodeAction: { showCode(.news(index: $0)) }) }
                 .tabItem { Label("뉴스", systemImage: "newspaper") }
                 .tag(EditorSection.news)
-            NavigationStack { fileScreen }
-                .id(navigationIDs[.file])
+            NavigationStack(path: scrollNavigation.pathBinding(for: .file)) { fileScreen }
                 .tabItem { Label("파일", systemImage: "folder") }
                 .tag(EditorSection.file)
         }
@@ -226,7 +225,7 @@ struct RootView: View {
                     .padding()
             }
         } detail: {
-            NavigationStack {
+            NavigationStack(path: scrollNavigation.pathBinding(for: selectedSection ?? .source)) {
                 switch selectedSection ?? .source {
                 case .source: SourceEditor(viewCodeAction: { showCode(.source) }, addAppAction: {
                     store.source.apps.append(SourceApp())
@@ -237,8 +236,7 @@ struct RootView: View {
                 case .file: fileScreen
                 }
             }
-            // A shared detail stack otherwise keeps a pushed editor above the new section.
-            .id(navigationIDs[selectedSection ?? .source])
+            .id(selectedSection ?? .source)
         }
         .navigationSplitViewStyle(.balanced)
         .environment(\.editorUsesSidebarLayout, true)
@@ -476,6 +474,21 @@ extension EnvironmentValues {
 }
 
 final class EditorScrollNavigation: ObservableObject {
+    @Published private var paths: [EditorSection: NavigationPath] = [:]
+
+    func pathBinding(for section: EditorSection) -> Binding<NavigationPath> {
+        Binding(get: { self.paths[section] ?? NavigationPath() },
+                set: { self.paths[section] = $0 })
+    }
+
+    func push<Route: Hashable>(_ route: Route, in section: EditorSection) {
+        var path = paths[section] ?? NavigationPath()
+        path.append(route)
+        paths[section] = path
+    }
+
+    func resetPath(for section: EditorSection) { paths[section] = NavigationPath() }
+
     let editorWillLeave = PassthroughSubject<EditorSection, Never>()
     private struct EditorRegistration {
         let section: EditorSection
@@ -486,7 +499,6 @@ final class EditorScrollNavigation: ObservableObject {
         editors[id] = EditorRegistration(section: section, hasChanges: hasChanges)
     }
     func unregisterEditor(_ id: UUID) { editors.removeValue(forKey: id) }
-    func isEditing(_ section: EditorSection) -> Bool { editors.values.contains { $0.section == section } }
     func hasChanges(in section: EditorSection) -> Bool {
         editors.values.contains { $0.section == section && $0.hasChanges() }
     }
@@ -539,8 +551,14 @@ private struct EditorScreenMarker<Value: Equatable>: ViewModifier {
             let baseline = initialValue ?? value()
             initialValue = baseline
             // Read bindings at tab-tap time, including local drafts not committed to the store yet.
-            navigation.registerEditor(id, section: section) { value() != baseline }
+            navigation.registerEditor(id, section: section) {
+                guard let baseline = initialValue else { return false }
+                return value() != baseline
+            }
         }
+            .onReceive(navigation.editorWillLeave) { leaving in
+                if leaving == section { initialValue = value() }
+            }
             .onDisappear { navigation.unregisterEditor(id) }
     }
 }

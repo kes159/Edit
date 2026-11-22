@@ -206,6 +206,8 @@ struct Patreon: Codable, Equatable {
 }
 
 struct SourceNews: Codable, Equatable {
+    // Stable navigation identity, omitted from source JSON like app editor identities.
+    var editorID = UUID()
     var title = ""
     var identifier = ""
     var caption = ""
