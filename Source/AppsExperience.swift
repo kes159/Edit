@@ -748,6 +748,7 @@ private struct AppPackageDataSheet: View {
                     Text("파일에서 편집기에 가져올 앱 정보를 선택하세요.")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Text(package.fileName).font(.caption).foregroundStyle(.secondary)
+                    versionCard
                     VStack(alignment: .leading, spacing: 22) {
                         selectionRow(.icon, title: "아이콘", available: package.iconData != nil) {
                             if let data = package.iconData, let image = UIImage(data: data) {
@@ -789,34 +790,6 @@ private struct AppPackageDataSheet: View {
                     }
                     .padding(20)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
-                    VStack(spacing: 16) {
-                        HStack {
-                            Text("버전")
-                            Spacer()
-                            Text(package.version.isEmpty ? "읽지 못함" : package.version).foregroundStyle(.secondary)
-                            if alreadyAdded {
-                                Text("Added").font(.caption.weight(.semibold)).foregroundStyle(.white)
-                                    .padding(.horizontal, 8).padding(.vertical, 4).background(.green, in: Capsule())
-                            }
-                        }
-                        Divider()
-                        HStack {
-                            Text("파일 크기")
-                            Spacer()
-                            Text(ByteCountFormatter.string(fromByteCount: Int64(package.size), countStyle: .file)).foregroundStyle(.secondary)
-                        }
-                        Divider()
-                        Button(action: onAddVersion) {
-                            Text("Add this version").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(alreadyAdded || package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        if package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("버전 번호를 읽지 못했습니다. 버전 메뉴에서 직접 추가해 주세요.").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(20)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
                 }
                 .frame(maxWidth: 760).padding(16).frame(maxWidth: .infinity)
             }
@@ -828,6 +801,37 @@ private struct AppPackageDataSheet: View {
                 }
             }
         }
+    }
+
+    private var versionCard: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("버전")
+                Spacer()
+                Text(package.version.isEmpty ? "읽지 못함" : package.version).foregroundStyle(.secondary)
+                if alreadyAdded {
+                    Text("Added").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 4).background(.green, in: Capsule())
+                }
+            }
+            Divider()
+            HStack {
+                Text("파일 크기")
+                Spacer()
+                Text(ByteCountFormatter.string(fromByteCount: Int64(package.size), countStyle: .file)).foregroundStyle(.secondary)
+            }
+            Divider()
+            Button(action: onAddVersion) {
+                Text("Add this version").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(alreadyAdded || package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if package.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("버전 번호를 읽지 못했습니다. 버전 메뉴에서 직접 추가해 주세요.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(20)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24))
     }
 
     private func selectionRow<Content: View>(_ field: AppPackageField, title: String, available: Bool,
