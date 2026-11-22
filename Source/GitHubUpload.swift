@@ -67,18 +67,6 @@ struct GitHubUploadSheet: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-                    Section {
-                        Button {
-                            upload()
-                        } label: {
-                            HStack {
-                                Spacer()
-                                Text(isUploading ? "업로드 중…" : "JSON 업로드하기")
-                                Spacer()
-                            }
-                        }
-                        .disabled(isUploading || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
                     Section(Guide.publicRepository.title) {
                         Text("1. 토큰을 발급하지 않고 사용하려면 이 화면을 닫고 JSON 내보내기로 파일을 내보내세요.")
                         Text("2. GitHub 웹사이트에 로그인한 뒤 쓰기 권한이 있는 공개 저장소에서 Add file → Upload files로 JSON을 올리고 커밋하세요.")
@@ -110,7 +98,16 @@ struct GitHubUploadSheet: View {
             }
             .navigationTitle("GitHub에 업로드")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("닫기") { dismiss() }.disabled(isUploading) }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("닫기") { dismiss() }.disabled(isUploading)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isUploading ? "업로드 중…" : "JSON 업로드하기") { upload() }
+                        .font(.subheadline.weight(.semibold))
+                        .disabled(isUploading || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
         .task { loadToken(for: repository) }
         .onChange(of: repository) { _, newValue in loadToken(for: newValue) }
