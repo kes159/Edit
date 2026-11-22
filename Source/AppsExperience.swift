@@ -379,19 +379,31 @@ private struct AppCodePicker: View {
     }
 }
 
+private enum AppEditorRoute: Hashable {
+    case app(UUID)
+    case version(appID: UUID, index: Int)
+    case screenshots(UUID)
+    case permissions(UUID)
+
+    var appID: UUID {
+        switch self {
+        case .app(let id), .version(let id, _), .screenshots(let id), .permissions(let id): id
+        }
+    }
+}
+
 struct AppsScreen: View {
     let viewCodeAction: (Int) -> Void
     @State private var choosingCodeApp = false
     @State private var codeAppID: UUID?
     @EnvironmentObject private var store: SourceStore
+    @EnvironmentObject private var navigation: EditorScrollNavigation
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.editorUsesSidebarLayout) private var usesSidebarLayout
     @State private var search = ""
     @State private var deleting = false
     @State private var appToDeleteID: UUID?
     @State private var showingDeleteAlert = false
-    @State private var editorAppID: UUID?
-    @State private var showingEditor = false
     @State private var lastDraggedAppID: UUID?
     @State private var lastDragEndedAt: Date = .distantPast
     @State private var rowFrameCache = ReorderFrameCache()
@@ -565,16 +577,7 @@ struct AppsScreen: View {
         }
         .toolbar(usesSidebarLayout ? .visible : .hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $showingEditor) {
-            if let editorAppID,
-               let index = store.source.apps.firstIndex(where: { $0.editorID == editorAppID }) {
-                AppEditor(app: $store.source.apps[index]) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        removeApp(editorAppID)
-                    }
-                }
-            }
-        }
+        .navigationDestination(for: AppEditorRoute.self) { route in destination(for: route) }
         .alert("앱을 삭제하시겠습니까?", isPresented: $showingDeleteAlert) {
             Button("예", role: .destructive) {
                 if let appToDeleteID { removeApp(appToDeleteID) }
@@ -638,12 +641,30 @@ struct AppsScreen: View {
         store.source.featuredApps.removeAll { $0 == id }
     }
 
+    @ViewBuilder private func destination(for route: AppEditorRoute) -> some View {
+        if let index = store.source.apps.firstIndex(where: { $0.editorID == route.appID }) {
+            switch route {
+            case .app:
+                AppEditor(app: $store.source.apps[index]) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { removeApp(route.appID) }
+                }
+            case .version(_, let versionIndex):
+                if store.source.apps[index].versions.indices.contains(versionIndex) {
+                    VersionEditor(version: $store.source.apps[index].versions[versionIndex])
+                }
+            case .screenshots:
+                ScreenshotsEditor(screenshots: $store.source.apps[index].screenshots)
+            case .permissions:
+                PermissionsEditor(permissions: $store.source.apps[index].appPermissions)
+            }
+        }
+    }
+
     private func openEditor(for id: UUID) {
         guard draggedAppID == nil,
               !(lastDraggedAppID == id && Date().timeIntervalSince(lastDragEndedAt) < 0.5)
         else { return }
-        editorAppID = id
-        showingEditor = true
+        navigation.push(AppEditorRoute.app(id), in: .apps)
     }
 
     private func moveApp(_ id: UUID, to targetIndex: Int) {
@@ -1117,9 +1138,7 @@ struct AppEditor: View {
     }
 
     private func screenshotRow(_ title: String, count: Int) -> some View {
-        NavigationLink {
-            ScreenshotsEditor(screenshots: $app.screenshots)
-        } label: {
+        NavigationLink(value: AppEditorRoute.screenshots(app.editorID)) {
             HStack {
                 Text(title).foregroundStyle(.primary)
                 Spacer()
@@ -1194,9 +1213,7 @@ struct AppEditor: View {
         let version = app.versions[index]
         return HStack(spacing: 10) {
             Circle().fill(.gray.opacity(0.45)).frame(width: 9, height: 9)
-            NavigationLink {
-                VersionEditor(version: $app.versions[index])
-            } label: {
+            NavigationLink(value: AppEditorRoute.version(appID: app.editorID, index: index)) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(version.version.isEmpty ? "새 버전" : version.version)
@@ -1233,7 +1250,7 @@ struct AppEditor: View {
                     newPrivacyValue = ""
                     sheet = .addPrivacy
                 } label: { Label("추가", systemImage: "plus") }
-                NavigationLink { PermissionsEditor(permissions: $app.appPermissions) } label: {
+                NavigationLink(value: AppEditorRoute.permissions(app.editorID)) {
                     Label("편집", systemImage: "square.and.pencil")
                 }
             }
@@ -1270,7 +1287,7 @@ struct AppEditor: View {
                 Text("앱 권한 설정").font(.subheadline)
                 Spacer()
                 Button { newEntitlement = ""; sheet = .addEntitlement } label: { Label("추가", systemImage: "plus") }
-                NavigationLink { PermissionsEditor(permissions: $app.appPermissions) } label: {
+                NavigationLink(value: AppEditorRoute.permissions(app.editorID)) {
                     Label("편집", systemImage: "square.and.pencil")
                 }
             }

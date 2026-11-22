@@ -8,15 +8,18 @@ private func linkedApp(for news: SourceNews, in apps: [SourceApp]) -> SourceApp?
     return apps.first { $0.bundleIdentifier == appID }
 }
 
+private struct NewsEditorRoute: Hashable {
+    let id: UUID
+}
+
 struct NewsScreen: View {
     @EnvironmentObject private var store: SourceStore
+    @EnvironmentObject private var navigation: EditorScrollNavigation
     let viewCodeAction: (Int) -> Void
     @State private var search = ""
     @State private var editing = false
     @State private var newsToDeleteIndex: Int?
     @State private var showingDeleteAlert = false
-    @State private var newEditorIndex: Int?
-    @State private var showingNewEditor = false
 
     private var indices: [Int] {
         store.source.news.indices.filter { index in
@@ -48,8 +51,7 @@ struct NewsScreen: View {
                         store.source.news.insert(item, at: 0)
                         search = ""
                         scrollProxy.scrollTo("newsTop", anchor: .top)
-                        newEditorIndex = 0
-                        showingNewEditor = true
+                        navigation.push(NewsEditorRoute(id: item.editorID), in: .news)
                     } label: { EditorListActionIcon(systemName: "plus.circle") }
                     .accessibilityLabel("뉴스 추가")
                     Button { editing.toggle() } label: {
@@ -71,9 +73,7 @@ struct NewsScreen: View {
                             }
                             .accessibilityLabel("뉴스 삭제")
                         }
-                        NavigationLink {
-                            editor(at: index)
-                        } label: {
+                        NavigationLink(value: NewsEditorRoute(id: store.source.news[index].editorID)) {
                             NewsCard(news: store.source.news[index], number: index + 1, apps: store.source.apps)
                         }
                         .buttonStyle(.plain)
@@ -88,9 +88,7 @@ struct NewsScreen: View {
         }
         .scrollToTopOnReselection(.news, proxy: scrollProxy, anchor: "newsTop")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $showingNewEditor) {
-            if let newEditorIndex { editor(at: newEditorIndex) }
-        }
+        .navigationDestination(for: NewsEditorRoute.self) { route in editor(for: route.id) }
         .alert("뉴스를 삭제하시겠습니까?", isPresented: $showingDeleteAlert) {
             Button("예", role: .destructive) {
                 if let newsToDeleteIndex, store.source.news.indices.contains(newsToDeleteIndex) {
@@ -104,13 +102,15 @@ struct NewsScreen: View {
         }
     }
 
-    @ViewBuilder private func editor(at index: Int) -> some View {
-        if store.source.news.indices.contains(index) {
+    @ViewBuilder private func editor(for id: UUID) -> some View {
+        if let index = store.source.news.firstIndex(where: { $0.editorID == id }) {
             NewsEditor(news: $store.source.news[index], apps: store.source.apps,
                        viewCodeAction: { viewCodeAction(index) },
                        deleteAction: {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    if store.source.news.indices.contains(index) { store.source.news.remove(at: index) }
+                    if let index = store.source.news.firstIndex(where: { $0.editorID == id }) {
+                        store.source.news.remove(at: index)
+                    }
                 }
             })
         }
