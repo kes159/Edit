@@ -1546,6 +1546,9 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         view.isSelectable = true
         view.isScrollEnabled = true
         view.backgroundColor = .black
+        view.isOpaque = true
+        view.decelerationRate = .normal
+        view.layoutManager.allowsNonContiguousLayout = false
         view.showsVerticalScrollIndicator = false
         view.tintColor = .systemBlue
         view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 52)
@@ -1560,6 +1563,7 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         context.coordinator.container = container
         context.coordinator.request = request
         if view.text != text {
+            container.invalidateTextLayout()
             let selection = view.selectedRange
             let offset = view.contentOffset
             view.attributedText = JSONPreviewSyntax.attributedText(text)
@@ -1570,6 +1574,11 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         view.setNeedsLayout()
     }
 
+    static func dismantleUIView(_ container: JSONPreviewContainer, coordinator: Coordinator) {
+        container.stopSmoothScrolling()
+        container.textView.onLayout = nil
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
@@ -1578,12 +1587,14 @@ private struct SelectableJSONTextView: UIViewRepresentable {
         private var focusedID: UUID?
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) { container?.updateScrollbar() }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { container?.stopSmoothScrolling() }
 
         func focusIfNeeded(_ view: UITextView) {
             guard view.window != nil, view.bounds.width > 0, view.bounds.height > 0,
                   let request, focusedID != request.id,
                   let range = JSONPreviewLocation.range(in: view.text, target: request.target) else { return }
             focusedID = request.id
+            container?.stopSmoothScrolling()
             view.selectedRange = NSRange(location: range.location, length: 0)
             view.layoutManager.ensureLayout(for: view.textContainer)
             let anchor = NSRange(location: range.location, length: min(1, range.length))
@@ -1620,11 +1631,73 @@ private struct SelectableJSONTextView: UIViewRepresentable {
 
 /// The scrollbar is a sibling of the text view, so dragging it does not select code.
 private final class JSONPreviewContainer: UIView {
-    let textView = JSONPreviewTextView()
+    let textView = JSONPreviewTextView(usingTextLayoutManager: false)
     private let scrollbar = JSONPreviewScrollbar()
+    private var needsTextLayout = true
+    private var laidOutTextWidth: CGFloat = 0
+
+    private var displayLink: CADisplayLink?
+    private var targetProgress: CGFloat?
+
+    private final class FrameTarget: NSObject {
+        weak var owner: JSONPreviewContainer?
+        init(owner: JSONPreviewContainer) { self.owner = owner; super.init() }
+        @objc func step(_ link: CADisplayLink) {
+            guard let owner else { link.invalidate(); return }
+            owner.advanceScroll(link)
+        }
+    }
+
+    private func scrollSmoothly(to progress: CGFloat) {
+        targetProgress = min(1, max(0, progress))
+        if UIAccessibility.isReduceMotionEnabled || UIAccessibility.isVoiceOverRunning {
+            let minimum = -textView.adjustedContentInset.top
+            let maximum = max(minimum, textView.contentSize.height - textView.bounds.height
+                              + textView.adjustedContentInset.bottom)
+            if let targetProgress {
+                textView.setContentOffset(CGPoint(x: textView.contentOffset.x,
+                                                  y: minimum + (maximum - minimum) * targetProgress), animated: false)
+            }
+            stopSmoothScrolling()
+            return
+        }
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: FrameTarget(owner: self), selector: #selector(FrameTarget.step(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func advanceScroll(_ link: CADisplayLink) {
+        guard window != nil, let targetProgress, !textView.isDragging else { stopSmoothScrolling(); return }
+        let minimum = -textView.adjustedContentInset.top
+        let maximum = max(minimum, textView.contentSize.height - textView.bounds.height
+                          + textView.adjustedContentInset.bottom)
+        let target = minimum + (maximum - minimum) * targetProgress
+        let current = textView.contentOffset.y
+        let duration = min(1.0 / 30, max(1.0 / 240, link.targetTimestamp - link.timestamp))
+        let blend = CGFloat(1 - exp(-duration / 0.045))
+        let settled = abs(target - current) < 0.25
+        textView.setContentOffset(CGPoint(x: textView.contentOffset.x,
+                                         y: settled ? target : current + (target - current) * blend), animated: false)
+        if settled { stopSmoothScrolling() }
+    }
+
+    func stopSmoothScrolling() {
+        displayLink?.invalidate()
+        displayLink = nil
+        targetProgress = nil
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { stopSmoothScrolling() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        backgroundColor = .black
+        isOpaque = true
         textView.translatesAutoresizingMaskIntoConstraints = false
         scrollbar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textView)
@@ -1639,20 +1712,26 @@ private final class JSONPreviewContainer: UIView {
             scrollbar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
             scrollbar.widthAnchor.constraint(equalToConstant: 40)
         ])
-        scrollbar.onScroll = { [weak self] progress in
-            guard let self else { return }
-            let minimum = -self.textView.adjustedContentInset.top
-            let maximum = max(minimum, self.textView.contentSize.height - self.textView.bounds.height
-                              + self.textView.adjustedContentInset.bottom)
-            self.textView.setContentOffset(CGPoint(x: self.textView.contentOffset.x,
-                                                   y: minimum + (maximum - minimum) * progress), animated: false)
-        }
+        scrollbar.onScroll = { [weak self] progress in self?.scrollSmoothly(to: progress) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func invalidateTextLayout() {
+        stopSmoothScrolling()
+        needsTextLayout = true
+        setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        let width = textView.bounds.width
+        if width > 0, needsTextLayout || laidOutTextWidth != width {
+            // Resolve wrapping once per document/width instead of estimating it while reading.
+            needsTextLayout = false
+            laidOutTextWidth = width
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+        }
         updateScrollbar()
     }
 
@@ -1677,6 +1756,8 @@ private final class JSONPreviewScrollbar: UIControl {
     private var progress: CGFloat = 0
     private var visibleFraction: CGFloat = 1
     private var grabOffset: CGFloat = 0
+    private var renderedThumbSize = CGSize.zero
+    private var announcedPercentage: Int?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1718,11 +1799,18 @@ private final class JSONPreviewScrollbar: UIControl {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(progress: CGFloat, visibleFraction: CGFloat, canScroll: Bool) {
+        let fraction = min(1, max(0, visibleFraction))
+        let needsGeometry = self.visibleFraction != fraction
         self.progress = min(1, max(0, progress))
-        self.visibleFraction = min(1, max(0, visibleFraction))
-        isEnabled = canScroll
-        accessibilityValue = "\(Int((self.progress * 100).rounded()))%"
-        setNeedsLayout()
+        self.visibleFraction = fraction
+        if isEnabled != canScroll { isEnabled = canScroll }
+        let percentage = Int((self.progress * 100).rounded())
+        if announcedPercentage != percentage {
+            announcedPercentage = percentage
+            accessibilityValue = "\(percentage)%"
+        }
+        if needsGeometry { setNeedsLayout() }
+        else { positionThumb() }
     }
 
     override func layoutSubviews() {
@@ -1731,13 +1819,26 @@ private final class JSONPreviewScrollbar: UIControl {
         let thumbHeight = min(height, max(44, height * visibleFraction))
         let x = (bounds.width - barWidth) / 2
         track.frame = CGRect(x: x, y: 0, width: barWidth, height: height)
-        thumb.frame = CGRect(x: x, y: (height - thumbHeight) * progress, width: barWidth, height: thumbHeight)
+        let size = CGSize(width: barWidth, height: thumbHeight)
+        if renderedThumbSize != size {
+            renderedThumbSize = size
+            thumb.bounds = CGRect(origin: .zero, size: size)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            thumbGradient.frame = thumb.bounds.insetBy(dx: 1, dy: 1)
+            thumb.layer.shadowPath = UIBezierPath(roundedRect: thumb.bounds, cornerRadius: 8).cgPath
+            CATransaction.commit()
+            grip.frame = thumb.bounds
+        }
+        positionThumb()
+    }
+
+    private func positionThumb() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        thumbGradient.frame = thumb.bounds.insetBy(dx: 1, dy: 1)
-        thumb.layer.shadowPath = UIBezierPath(roundedRect: thumb.bounds, cornerRadius: 8).cgPath
+        thumb.center = CGPoint(x: bounds.midX, y: thumb.bounds.height / 2
+                               + max(0, bounds.height - thumb.bounds.height) * progress)
         CATransaction.commit()
-        grip.frame = thumb.bounds
     }
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
@@ -1757,9 +1858,7 @@ private final class JSONPreviewScrollbar: UIControl {
     private func moveThumb(to y: CGFloat) {
         let travel = bounds.height - thumb.bounds.height
         guard travel > 0 else { return }
-        progress = min(1, max(0, (y - grabOffset) / travel))
-        setNeedsLayout()
-        onScroll?(progress)
+        onScroll?(min(1, max(0, (y - grabOffset) / travel)))
     }
 
     override func accessibilityIncrement() { adjust(by: 0.1) }
@@ -1767,9 +1866,7 @@ private final class JSONPreviewScrollbar: UIControl {
 
     private func adjust(by step: CGFloat) {
         guard isEnabled else { return }
-        progress = min(1, max(0, progress + step))
-        setNeedsLayout()
-        onScroll?(progress)
+        onScroll?(min(1, max(0, progress + step)))
     }
 }
 
@@ -1796,7 +1893,7 @@ private final class JSONPreviewTextView: UITextView, UIEditMenuInteractionDelega
     }
 
     @objc func showCopyMenu(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, !text.isEmpty else { return }
+        guard gesture.state == .began, !text.isEmpty, !isDragging, !isDecelerating else { return }
         becomeFirstResponder()
         if let position = closestPosition(to: gesture.location(in: self)) {
             let location = offset(from: beginningOfDocument, to: position)
