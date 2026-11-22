@@ -128,9 +128,10 @@ final class SourceStore: ObservableObject {
         let newsIDs = source.news.map(\.identifier).filter { !$0.trimmed.isEmpty }
         if Set(newsIDs).count != newsIDs.count { result.append("뉴스 식별자가 중복됩니다.") }
         for (index, item) in source.news.enumerated() {
-            if item.title.trimmed.isEmpty || item.identifier.trimmed.isEmpty || item.caption.trimmed.isEmpty {
-                result.append("뉴스 \(index + 1): 제목, 식별자, 뉴스 내용이 필요합니다.")
-            }
+            let label = "뉴스 \(index + 1)"
+            if item.title.trimmed.isEmpty { result.append("\(label): 제목이 필요합니다.") }
+            if item.identifier.trimmed.isEmpty { result.append("\(label): 식별자가 필요합니다.") }
+            if item.caption.trimmed.isEmpty { result.append("\(label): 뉴스 내용이 필요합니다.") }
         }
         return result
     }
