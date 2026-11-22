@@ -521,6 +521,7 @@ struct AppsScreen: View {
             .frame(maxWidth: .infinity)
             .background(ReorderScrollLocator { autoScroller.attach($0) })
         }
+        .scrollToTopOnReselection(.apps, proxy: scrollProxy, anchor: "appsTop")
         .overlay(alignment: .topLeading) {
         if let draggedAppID,
            let app = store.source.apps.first(where: { $0.editorID == draggedAppID }),
