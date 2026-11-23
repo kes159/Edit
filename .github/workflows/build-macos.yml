@@ -1,0 +1,121 @@
+name: Build Source Editor macOS
+
+on:
+  push:
+    branches: [macos]
+    paths-ignore:
+      - README.md
+      - USER_GUIDE.md
+      - AGENTS.md
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild -version | tee build/xcode-version.txt
+          xcrun --sdk macosx --show-sdk-path
+          sw_vers
+
+      - name: Build macOS app
+        id: build-macos
+        run: |
+          set -euo pipefail
+          build_started=$SECONDS
+          ./scripts/build-macos.sh
+          echo "seconds=$((SECONDS - build_started))" >> "$GITHUB_OUTPUT"
+
+      - name: Verify macOS app
+        run: |
+          set -euo pipefail
+          unzip -tq build/Source_Editor_macOS.zip
+          app="build/macos-package/Source Editor.app"
+          archs="$(lipo -archs "$app/Contents/MacOS/Source")"
+          echo "아키텍처: $archs"
+          for arch in arm64 x86_64; do
+            if [[ " $archs " != *" $arch "* ]]; then
+              echo "$arch 아키텍처가 포함되어 있지 않습니다." >&2
+              exit 1
+            fi
+          done
+          plutil -p "$app/Contents/Info.plist" | grep -E 'CFBundle(Identifier|ShortVersionString|Version)|LSMinimumSystemVersion'
+          codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature'
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/Source_Editor_macOS.zip
+          if-no-files-found: error
+          archive: false
+
+      - name: Publish macOS app for download
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="macos-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip="build/Source_Editor_macOS.zip"
+          sha="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
+          echo "$sha  Source_Editor_macOS.zip" > "${zip}.sha256"
+
+          {
+            echo "macOS용 Source Editor (Mac Catalyst, Intel·Apple 실리콘 공용)"
+            echo
+            echo "### 설치 방법"
+            echo "1. \`Source_Editor_macOS.zip\`을 받아 압축을 풉니다."
+            echo "2. \`Source Editor.app\`을 응용 프로그램 폴더로 옮깁니다."
+            echo "3. 개발자 서명이 없는 앱이라 처음 실행할 때 경고가 나옵니다. 터미널에서 아래 명령을 한 번 실행한 뒤 엽니다."
+            echo
+            echo '```bash'
+            echo 'xattr -dr com.apple.quarantine "/Applications/Source Editor.app"'
+            echo '```'
+            echo
+            echo "명령 없이 열려면 앱을 한 번 실행해 차단된 뒤 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기**를 누릅니다."
+            echo
+            echo "### 정보"
+            echo "- 필요 환경: macOS 14 (Sonoma) 이상"
+            echo "- 빌드 커밋: \`${GITHUB_SHA:0:7}\`"
+            echo "- SHA-256: \`$sha\`"
+            echo "- 빌드 로그: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > build/macos-release-notes.md
+
+          gh release create "$tag" "$zip" "${zip}.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "Source Editor macOS · #${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            --notes-file build/macos-release-notes.md \
+            --prerelease
+
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/Source_Editor_macOS.zip"
+          {
+            echo "### macOS 다운로드"
+            echo "[Source_Editor_macOS.zip]($url)"
+            echo
+            echo "SHA-256: \`$sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add Korean commit changes to summary
+        env:
+          SOURCE_BUILD_SECONDS: ${{ steps.build-macos.outputs.seconds }}
+        run: |
+          set -euo pipefail
+          python3 scripts/write-build-summary.py
+          {
+            echo
+            echo "### 빌드 시간"
+            echo "- 컴파일·앱 패키징: ${SOURCE_BUILD_SECONDS}초"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -87,3 +87,30 @@ SideStore용 소스 JSON을 만들고 관리하는 SwiftUI iOS 앱입니다. JSO
 - Release 제목은 `Source Editor v앱버전 (빌드 앱빌드번호) · #워크플로번호.시도` 형식으로 생성됩니다. 본문에는 한국어 수정사항, IPA 다운로드, 실제 IPA의 버전·최소 iOS·지원 기기·파일 크기, 설치 방법, 해당 커밋의 사용 가이드, 빌드 로그와 SHA-256이 포함됩니다. `Source_Editor.ipa.sha256` 확인 파일도 IPA와 함께 첨부됩니다.
 - 수동 실행으로 만든 Release는 실행 번호마다 별도로 생성됩니다. 공개 저장소의 Release는 공개되며, 비공개 저장소의 Release는 접근 권한이 있는 사용자만 볼 수 있습니다. IPA는 서명되지 않았으므로 Feather로 서명한 뒤 설치해야 합니다. 파일의 생성일과 수정일은 다운로드하는 기기와 방식에 따라 다운로드 시각으로 표시될 수 있습니다.
 - **Actions → Delete past runs and releases → Run workflow**를 수동 실행하면 완료된 워크플로 기록과 모든 Release, 각 Release에 연결된 태그를 삭제합니다. 실행 중인 정리 작업과 Release에 연결되지 않은 태그는 남습니다.
+
+## macOS 앱 (`macos` 브랜치)
+
+`macos` 브랜치는 같은 코드를 **Mac Catalyst**로 빌드해 Mac에서 쓸 수 있는 앱(`Source Editor.app`)을 만듭니다. Intel과 Apple 실리콘을 모두 지원하는 유니버설 앱이며, macOS 14 (Sonoma) 이상에서 실행됩니다. iPad 화면 구성을 Mac 창에 맞춰 보여 주는 방식이며, Mac 전용으로 새로 디자인한 화면은 아닙니다.
+
+### 설치
+
+1. GitHub의 **Actions → Build Source Editor macOS → Run workflow**를 `macos` 브랜치에서 실행합니다.
+2. 완료된 실행의 Summary에 있는 **macOS 다운로드** 링크(Release)에서 `Source_Editor_macOS.zip`을 받아 압축을 풉니다.
+3. `Source Editor.app`을 응용 프로그램 폴더로 옮깁니다.
+4. 개발자 인증서로 서명한 앱이 아니어서 처음 열 때 Gatekeeper가 막습니다. 터미널에서 한 번만 실행하세요.
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Source Editor.app"
+   ```
+
+   명령 없이 열려면 앱을 한 번 실행해 차단된 뒤 **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**를 누릅니다.
+
+### 직접 빌드
+
+- Xcode에서 `Source.xcodeproj`를 열고 실행 대상을 **My Mac (Mac Catalyst)**로 선택하세요. 자신의 개발 팀을 선택하면 일반 서명으로 빌드됩니다.
+- 터미널에서는 `./scripts/build-macos.sh`로 `build/Source_Editor_macOS.zip`을 만들 수 있습니다.
+
+### iOS 앱과 다른 점
+
+- GitHub 토큰은 서명하지 않은 빌드에서도 저장되도록 데이터 보호 키체인 대신 로그인 키체인에 저장합니다. 앱을 새로 빌드해 교체하면 키체인 접근 허용 창이 나타날 수 있습니다.
+- iPhone·iPad용 IPA 빌드(`main` 브랜치의 Build Source Editor IPA)는 이 브랜치의 변경과 무관하게 그대로 동작합니다.

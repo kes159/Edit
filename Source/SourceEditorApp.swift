@@ -11,7 +11,21 @@ struct SourceEditorApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
+                .onAppear { MacWindowSupport.configure() }
         }
+    }
+}
+
+/// macOS(Mac Catalyst) 창이 너무 작아져 넓은 화면 레이아웃이 깨지지 않도록 최소 크기를 지정합니다.
+/// iPhone·iPad 빌드에서는 아무 동작도 하지 않습니다.
+enum MacWindowSupport {
+    static func configure() {
+        #if targetEnvironment(macCatalyst)
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            windowScene.sizeRestrictions?.minimumSize = CGSize(width: 900, height: 700)
+        }
+        #endif
     }
 }
 

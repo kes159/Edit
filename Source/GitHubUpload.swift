@@ -259,9 +259,14 @@ private enum GitHubUploadToken {
     private static let service = "app.sourceeditor.github-upload"
 
     private static func query(repository: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: repository]
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: repository]
+        #if targetEnvironment(macCatalyst)
+        // 서명하지 않은 macOS 빌드는 데이터 보호 키체인 권한이 없어 일반 로그인 키체인을 사용합니다.
+        query[kSecUseDataProtectionKeychain as String] = false
+        #endif
+        return query
     }
 
     static func load(repository: String) -> String? {
@@ -276,10 +281,10 @@ private enum GitHubUploadToken {
 
     static func save(_ token: String, repository: String) throws {
         guard let data = token.data(using: .utf8) else { throw UploadFailure.invalidToken }
-        let attributes: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
+        var attributes: [String: Any] = [kSecValueData as String: data]
+        #if !targetEnvironment(macCatalyst)
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        #endif
         var item = query(repository: repository)
         item.merge(attributes) { _, new in new }
         let status = SecItemAdd(item as CFDictionary, nil)
