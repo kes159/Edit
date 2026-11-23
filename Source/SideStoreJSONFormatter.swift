@@ -168,9 +168,14 @@ enum SideStoreJSONFormatter {
         return output.string(from: date)
     }
 
+    /// 다운로드 URL 변환 규칙
+    /// - kes158/NightFox_Repository 릴리스 다운로드 URL → Cloudflare Workers 프록시 URL
+    /// - kes158/Box 를 포함한 그 밖의 모든 URL → 입력한 GitHub 링크 그대로 유지 (변환하지 않음)
     private static func proxyURL(_ value: String) -> String {
         let prefix = "https://github.com/kes158/NightFox_Repository/releases/download/"
-        guard value.hasPrefix(prefix) else { return value }
-        return "https://nightfox-proxy.kes158.workers.dev/dl/" + String(value.dropFirst(prefix.count))
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // GitHub 소유자·저장소 이름은 대소문자를 구분하지 않으므로 접두사도 대소문자 무시로 비교합니다.
+        guard trimmed.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil else { return value }
+        return "https://nightfox-proxy.kes158.workers.dev/dl/" + String(trimmed.dropFirst(prefix.count))
     }
 }
